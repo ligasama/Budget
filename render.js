@@ -11,22 +11,24 @@
   stylePresets,
   today,
   yuan
-} from "./state.js?v=budget-fix3";
+} from "./state.js?v=budget-analysis1";
 import {
   amortizationMonths,
   assetTransferInTotal,
   assetTransferOutTotal,
   assetTransferTotal,
   budgetRemaining,
+  breakdownTotal,
   cashBalance,
   dailyExpenseTotal,
   investmentDirection,
   investmentPnl,
   monthTransactions,
   spentByAccount,
+  spentBySection,
   totalIncome,
   totalBudget
-} from "./calculations.js?v=budget-fix3";
+} from "./calculations.js?v=budget-analysis1";
 
 export function renderApp(state, visibleResultInfo) {
   renderBudgetPage(state, visibleResultInfo);
@@ -34,6 +36,7 @@ export function renderApp(state, visibleResultInfo) {
   renderAssetsPage(state);
   renderBudgetSettingsPage(state);
   renderQuickForm(state);
+  renderAccountView(state);
 }
 
 export function renderBudgetPage(state, visibleResultInfo) {
@@ -102,84 +105,151 @@ export function renderBudgetSettingsPage(state) {
   `).join("");
   const accountManager = document.querySelector("#accountManager");
   if (!accountManager) return;
-  accountManager.innerHTML = accountOrder.map((id) => {
-    const meta = accountMeta[id];
-    const details = accountDetails[id];
-    const budget = Number(state.budgets[id] || 0);
-    const spent = meta.type === "investment" ? Math.max(assetTransferTotal(state), 0) : spentByAccount(state, id);
-    const remaining = budget - spent;
-    const categoryList = [];
-    const remainingClass = remaining < 0 ? "is-negative" : "";
-    return `
-      <article class="account-detail" style="--accent:${meta.color}; --soft:${meta.soft}">
-        <div class="account-detail-head">
-          <span class="account-icon">${meta.icon}</span>
-          <div>
-            <h2>${meta.title}</h2>
-            <p>${meta.description}</p>
-          </div>
-        </div>
-        <div class="account-detail-metrics">
-          <span>预算 <b>${yuan.format(budget)}</b></span>
-          <span>${meta.type === "investment" ? "已投入" : "已用"} <b>${yuan.format(spent)}</b></span>
-          <span>${meta.type === "investment" ? "待投入" : "剩余"} <b class="${remainingClass}">${yuan.format(remaining)}</b></span>
-        </div>
-        <div class="account-tests" aria-label="${meta.title}判断条件">
-          ${details.tests.map((test) => `<span>${escapeHtml(test)}</span>`).join("")}
-        </div>
-        <div class="account-submodules">
-          ${details.sections.map((section) => `
-            <section class="account-submodule">
-              <h3>${escapeHtml(section.title)}</h3>
-              <p>${escapeHtml(section.body)}</p>
-            </section>
-          `).join("")}
-        </div>
-        <div class="category-tags" aria-label="${meta.title}记账分类">
-          ${categoryList.map((name) => `<span>${escapeHtml(name)}</span>`).join("")}
-        </div>
-        <div class="breakdown-list">
-          ${details.sections.map((section, sectionIndex) => renderBreakdownSection(state, id, section, sectionIndex)).join("")}
-        </div>
-      </article>
-    `;
-  }).join("");
+  const activeId = accountMeta[state.managerAccountId] ? state.managerAccountId : "survival";
+  state.managerAccountId = activeId;
+  state.managerViewMode = state.managerViewMode === "spent" ? "spent" : "budget";
+  accountManager.innerHTML = renderAccountManagerTabs(activeId) + renderManagedAccount(state, activeId);
 }
 
-function renderBreakdownSection(state, accountId, section, sectionIndex) {
+function renderAccountManagerTabs(activeId) {
+  return [
+    '<div class="account-manager-tabs" role="tablist" aria-label="选择账户">',
+    homeAccountOrder.map((id) => {
+      const meta = accountMeta[id];
+      const isActive = id === activeId;
+      return [
+        '<button class="account-manager-tab ' + (isActive ? "is-active" : "") + '" style="--accent:' + meta.color + '" data-manager-account="' + id + '" type="button" role="tab" aria-selected="' + isActive + '">',
+        '<span class="account-tab-icon">' + meta.icon + "</span>",
+        "<strong>" + meta.title + "</strong>",
+        "</button>"
+      ].join("");
+    }).join(""),
+    "</div>"
+  ].join("");
+}
+
+function renderManagedAccount(state, id) {
+  const meta = accountMeta[id];
+  const details = accountDetails[id];
+  const budget = Number(state.budgets[id] || 0);
+  const spent = meta.type === "investment" ? Math.max(assetTransferTotal(state), 0) : spentByAccount(state, id);
+  const spentLabel = meta.type === "investment" ? "已投入" : "已用";
+  const mode = state.managerViewMode === "spent" ? "spent" : "budget";
+  const budgetStatus = renderBudgetAllocationStatus(budget, breakdownTotal(state, id));
+  return `
+    <article class="account-detail" style="--accent:${meta.color}; --soft:${meta.soft}">
+      <div class="account-detail-head">
+        <span class="account-icon">${meta.icon}</span>
+        <div>
+          <h2>${meta.title}</h2>
+          <p>${meta.description}</p>
+        </div>
+      </div>
+      <div class="account-detail-metrics">
+        <button class="metric-link ${mode === "budget" ? "is-active" : ""}" data-manager-mode="budget" type="button" aria-pressed="${mode === "budget"}">预算 <b>${yuan.format(budget)}</b>${budgetStatus}</button>
+        <button class="metric-link ${mode === "spent" ? "is-active" : ""}" data-manager-mode="spent" type="button" aria-pressed="${mode === "spent"}">${spentLabel} <b>${yuan.format(spent)}</b></button>
+      </div>
+      <div class="account-tests" aria-label="${meta.title}判断条件">
+        ${details.tests.map((test) => `<span>${escapeHtml(test)}</span>`).join("")}
+      </div>
+      <div class="breakdown-list">
+        ${details.sections.map((section, sectionIndex) => renderBreakdownSection(state, id, section, sectionIndex, mode)).join("")}
+      </div>
+    </article>
+  `;
+}
+
+function renderBreakdownSection(state, accountId, section, sectionIndex, mode = "budget") {
   const items = state.accountBreakdowns?.[accountId]?.[sectionIndex] ?? [];
-  const total = items.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+  const budget = items.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+  const spent = spentBySection(state, accountId, section.title);
+  const isInvestment = accountMeta[accountId]?.type === "investment";
+  const spentLabel = isInvestment ? "已投入" : "已用";
+  const spentClass = spent > budget && budget > 0 ? "is-overspent" : "";
+  const isBudgetMode = mode !== "spent";
+  const transactions = isBudgetMode ? [] : sectionTransactions(state, accountId, section.title);
   return `
     <section class="account-submodule budget-breakdown" data-breakdown-section="${accountId}" data-breakdown-index="${sectionIndex}">
       <button class="breakdown-toggle" data-breakdown-toggle type="button" aria-expanded="false">
         <span>
           <strong>${escapeHtml(section.title)}</strong>
-          <em>${items.length} 个条目</em>
+          <em>${isBudgetMode ? items.length + " 个条目" : transactions.length + " 笔已用明细"}</em>
         </span>
-        <b>${yuan.format(total)}</b>
+        <span class="breakdown-metrics">
+          <span>${isBudgetMode ? "" : spentLabel} <b class="${!isBudgetMode ? spentClass : ""}">${yuan.format(isBudgetMode ? budget : spent)}</b></span>
+        </span>
         <i aria-hidden="true">⌄</i>
       </button>
       <div class="breakdown-panel">
-        <div class="breakdown-items">
-          ${items.map((item) => `
-            <div class="breakdown-item" data-breakdown-item="${item.id}">
-              <input data-breakdown-name="${accountId}" data-section-index="${sectionIndex}" data-item-id="${item.id}" type="text" value="${escapeHtml(item.name)}" aria-label="条目名称">
-              <label>
-                <span>¥</span>
-                <input data-breakdown-amount="${accountId}" data-section-index="${sectionIndex}" data-item-id="${item.id}" type="number" min="0" step="1" value="${Number(item.amount || 0)}" aria-label="条目金额">
-              </label>
-              <button class="icon-button breakdown-delete" data-breakdown-delete="${accountId}" data-section-index="${sectionIndex}" data-item-id="${item.id}" type="button" aria-label="删除条目">×</button>
-            </div>
-          `).join("")}
-        </div>
-        <form class="breakdown-add-form" data-breakdown-form="${accountId}" data-section-index="${sectionIndex}">
-          <input name="name" type="text" placeholder="新建条目" aria-label="新建条目名称">
-          <input name="amount" type="number" min="0" step="1" placeholder="金额" aria-label="新建条目金额">
-          <button class="secondary-button" type="submit">添加</button>
-        </form>
+        ${isBudgetMode ? renderBudgetBreakdownItems(accountId, sectionIndex, items) : renderSpentBreakdownItems(transactions)}
       </div>
     </section>
   `;
+}
+
+function renderBudgetAllocationStatus(accountBudget, detailsTotal) {
+  const diff = Number(accountBudget || 0) - Number(detailsTotal || 0);
+  if (diff > 0) {
+    return '<em class="budget-allocation-status is-gap">剩余 ' + yuan.format(diff) + " 未分配</em>";
+  }
+  if (diff < 0) {
+    return '<em class="budget-allocation-status is-over">已超过预算 ' + yuan.format(Math.abs(diff)) + "</em>";
+  }
+  return "";
+}
+
+function renderBudgetBreakdownItems(accountId, sectionIndex, items) {
+  return `
+    <div class="breakdown-items">
+      ${items.map((item) => `
+        <div class="breakdown-item" data-breakdown-item="${item.id}">
+          <input data-breakdown-name="${accountId}" data-section-index="${sectionIndex}" data-item-id="${item.id}" type="text" value="${escapeHtml(item.name)}" aria-label="条目名称">
+          <label>
+            <span>¥</span>
+            <input data-breakdown-amount="${accountId}" data-section-index="${sectionIndex}" data-item-id="${item.id}" type="number" min="0" step="1" value="${Number(item.amount || 0)}" aria-label="条目金额">
+          </label>
+          <button class="icon-button breakdown-delete" data-breakdown-delete="${accountId}" data-section-index="${sectionIndex}" data-item-id="${item.id}" type="button" aria-label="删除条目">×</button>
+        </div>
+      `).join("") || '<p class="empty-copy">还没有条目。</p>'}
+    </div>
+    <form class="breakdown-add-form" data-breakdown-form="${accountId}" data-section-index="${sectionIndex}">
+      <input name="name" type="text" placeholder="新建条目" aria-label="新建条目名称">
+      <input name="amount" type="number" min="0" step="1" placeholder="金额" aria-label="新建条目金额">
+      <button class="secondary-button" type="submit">添加</button>
+    </form>
+  `;
+}
+
+function renderSpentBreakdownItems(transactions) {
+  if (!transactions.length) return '<p class="empty-copy">本月还没有已用明细。</p>';
+  return `
+    <div class="spent-breakdown-items">
+      ${transactions.map((entry) => {
+        const amount = Number(entry.monthAmount ?? entry.amount ?? 0);
+        const note = entry.note ? " · " + escapeHtml(entry.note) : "";
+        const amortization = entry.type === "expense" && amortizationMonths(entry) > 1
+          ? " · 摊销 " + entry.amortizationIndex + "/" + entry.amortizationMonths
+          : "";
+        return `
+          <div class="spent-breakdown-item">
+            <span>${escapeHtml(entry.date)}${amortization}${note}</span>
+            <b>${yuan.format(amount)}</b>
+          </div>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
+function sectionTransactions(state, accountId, sectionTitle) {
+  return monthTransactions(state)
+    .filter((entry) => {
+      if (accountMeta[accountId]?.type === "investment") {
+        return entry.type === "investment" && entry.category === sectionTitle && investmentDirection(entry) > 0;
+      }
+      return entry.type === "expense" && entry.accountId === accountId && entry.category === sectionTitle;
+    })
+    .sort((a, b) => b.createdAt - a.createdAt);
 }
 
 export function renderQuickForm(state) {
@@ -331,6 +401,121 @@ function renderPie(state) {
   }).join("");
 }
 
+function renderAccountView(state) {
+  const container = document.querySelector("#accountViewContent");
+  const titleEl = document.querySelector("#accountViewTitle");
+  if (!container || !titleEl) return;
+  const id = state.viewAccountId;
+  if (!id || !accountMeta[id]) return;
+  const meta = accountMeta[id];
+  const details = accountDetails[id];
+  const mode = state.viewMode;
+  const isInvestment = meta.type === "investment";
+  const spentLabel = isInvestment ? "已投入" : "已用";
+  titleEl.textContent = meta.title + " · " + (mode === "budget" ? "预算分析" : spentLabel + "分析");
+  if (mode === "budget") {
+    container.innerHTML = renderAccountBudgetView(state, id, details, meta);
+  } else {
+    container.innerHTML = renderAccountSpentView(state, id, details, meta, spentLabel);
+  }
+}
+
+function renderAccountBudgetView(state, id, details, meta) {
+  const accountBudget = Number(state.budgets[id] || 0);
+  const sections = details.sections.map((section, sectionIndex) => {
+    const items = state.accountBreakdowns?.[id]?.[sectionIndex] ?? [];
+    const value = items.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+    return { title: section.title, value };
+  });
+  const breakdownSum = sections.reduce((sum, section) => sum + section.value, 0);
+  const diff = accountBudget - breakdownSum;
+  const diffClass = diff < 0 ? "is-over" : diff > 0 ? "is-gap" : "is-balanced";
+  const diffLabel = diff < 0 ? "超出预算" : diff > 0 ? "未分配" : "已全部分配";
+  const diffValue = diff === 0 ? "¥0" : yuan.format(Math.abs(diff));
+  const summaryNote = diff < 0
+    ? "明细预算已经高于账户预算"
+    : diff > 0
+      ? "还可以继续分配到下方分类"
+      : "分类预算与账户预算一致";
+
+  return [
+    '<section class="account-view-dashboard" style="--accent:' + meta.color + '; --soft:' + meta.soft + '">',
+    '<button class="account-view-hero" data-edit-account-budget="' + id + '" data-nav="budget-settings" data-parent-nav="budget" data-focus-target="[data-budget=&quot;' + id + '&quot;]" type="button">',
+    '<span>账户预算</span>',
+    '<strong>' + yuan.format(accountBudget) + "</strong>",
+    '<em>点击调整</em>',
+    "</button>",
+    '<div class="account-view-status ' + diffClass + '">',
+    "<span>" + diffLabel + "</span>",
+    "<strong>" + diffValue + "</strong>",
+    "<em>" + summaryNote + "</em>",
+    "</div>",
+    '<section class="account-view-chart" aria-label="' + meta.title + '预算明细排行">',
+    '<div class="account-view-chart-head">',
+    "<span>明细预算排行</span>",
+    "<b>合计 " + yuan.format(breakdownSum) + "</b>",
+    "</div>",
+    renderAccountDistributionRows(sections, accountBudget, "budget"),
+    "</section>",
+    "</section>"
+  ].join("");
+}
+
+function renderAccountSpentView(state, id, details, meta, spentLabel) {
+  const accountBudget = Number(state.budgets[id] || 0);
+  const totalSpent = meta.type === "investment" ? Math.max(assetTransferTotal(state), 0) : spentByAccount(state, id);
+  const left = accountBudget - totalSpent;
+  const statusClass = left < 0 ? "is-over" : "is-gap";
+  const statusLabel = left < 0 ? "超出预算" : meta.type === "investment" ? "还可投入" : "剩余额度";
+  const sections = details.sections.map((section) => ({
+    title: section.title,
+    value: spentBySection(state, id, section.title)
+  }));
+
+  return [
+    '<section class="account-view-dashboard" style="--accent:' + meta.color + '; --soft:' + meta.soft + '">',
+    '<div class="account-view-hero is-static">',
+    "<span>" + spentLabel + "合计</span>",
+    "<strong>" + yuan.format(totalSpent) + "</strong>",
+    "<em>本月实际发生</em>",
+    "</div>",
+    '<div class="account-view-status ' + statusClass + '">',
+    "<span>" + statusLabel + "</span>",
+    "<strong>" + yuan.format(Math.abs(left)) + "</strong>",
+    "<em>账户预算 " + yuan.format(accountBudget) + "</em>",
+    "</div>",
+    '<section class="account-view-chart" aria-label="' + meta.title + spentLabel + '明细排行">',
+    '<div class="account-view-chart-head">',
+    "<span>" + spentLabel + "排行</span>",
+    "<b>按金额从高到低</b>",
+    "</div>",
+    renderAccountDistributionRows(sections, Math.max(totalSpent, accountBudget), "spent"),
+    "</section>",
+    "</section>"
+  ].join("");
+}
+
+function renderAccountDistributionRows(sections, basis, mode) {
+  const sorted = [...sections].sort((a, b) => b.value - a.value);
+  const max = Math.max(...sorted.map((section) => section.value), 1);
+  const totalBasis = Math.max(Number(basis || 0), 1);
+  const rows = sorted.map((section) => {
+    const percent = Math.round((section.value / totalBasis) * 100);
+    const width = Math.max(section.value > 0 ? 6 : 0, Math.round((section.value / max) * 100));
+    return [
+      '<div class="account-view-bar-row">',
+      '<div class="account-view-bar-copy">',
+      "<strong>" + escapeHtml(section.title) + "</strong>",
+      "<span>" + percent + "%</span>",
+      "</div>",
+      '<div class="account-view-bar-track" aria-hidden="true"><span style="--bar:' + width + '%"></span></div>',
+      '<b>' + yuan.format(section.value) + "</b>",
+      "</div>"
+    ].join("");
+  }).join("");
+  return rows || '<p class="empty-copy">' + (mode === "spent" ? "本月还没有已用明细。" : "还没有预算明细。") + "</p>";
+}
+
 function renderAccounts(state) {
   document.querySelector("#accountList").innerHTML = homeAccountOrder.map((id) => {
     const meta = accountMeta[id];
@@ -341,29 +526,26 @@ function renderAccounts(state) {
     const progress = Math.min(percent, 100);
     if (id === "assets") {
       const invested = assetTransferTotal(state);
-      const pending = budget - invested;
-      const marketValue = Number(state.assetSnapshot?.marketValue || 0);
       const pnl = investmentPnl(state);
-      const pnlDegrees = Math.min(360, Math.max(12, Math.round((Math.abs(pnl) / Math.max(budget, 1)) * 360)));
-      const pendingClass = pending < 0 ? "is-negative" : "";
+      const returnRate = invested > 0 ? pnl / invested : 0;
+      const investPercent = budget > 0 ? Math.round((invested / budget) * 100) : 0;
+      const investProgress = Math.min(investPercent, 100);
       const pnlClass = pnl < 0 ? "is-negative" : "is-positive";
       return [
-        '<article class="account-row asset-account-row" style="--accent:' + meta.color + '; --soft:' + meta.soft + '; --pnl:' + pnlDegrees + 'deg">',
+        '<article class="account-row asset-account-row" style="--accent:' + meta.color + '; --soft:' + meta.soft + '; --progress:' + (investProgress * 3.6) + 'deg">',
         '<span class="account-icon">' + meta.icon + "</span>",
-        '<div class="account-main">',
-        "<h3>" + meta.title + "</h3>",
-        "<p>" + meta.description + "</p>",
-        '<div class="account-metrics asset-metrics">',
-        "<span>本月计划投入 <b>" + yuan.format(budget) + "</b></span>",
-        "<span>本月已投入 <b>" + yuan.format(invested) + "</b></span>",
-        '<span>待投入 <b class="' + pendingClass + '">' + yuan.format(pending) + "</b></span>",
-        "<span>当前市值 <b>" + yuan.format(marketValue) + "</b></span>",
-        '<span>本月浮盈亏 <b class="' + pnlClass + '">' + formatSignedCurrency(pnl) + "</b></span>",
+      '<div class="account-main">',
+      "<h3>" + meta.title + "</h3>",
+      "<p>" + meta.description + "</p>",
+      '<div class="account-metrics asset-metrics">',
+      '<button class="metric-link" data-account-view="' + id + '" data-view-mode="budget" data-nav="account-view" data-parent-nav="budget" type="button">预算 <b>' + yuan.format(budget) + "</b></button>",
+      '<button class="metric-link" data-account-view="' + id + '" data-view-mode="spent" data-nav="account-view" data-parent-nav="budget" type="button">已投入 <b>' + yuan.format(invested) + "</b></button>",
+      '<span>收益率 <b class="' + pnlClass + '">' + formatSignedPercent(returnRate) + "</b></span>",
+      '<span>本月浮盈亏 <b class="' + pnlClass + '">' + formatSignedCurrency(pnl) + "</b></span>",
         "</div>",
         "</div>",
-        '<div class="pnl-visual ' + pnlClass + '" aria-label="' + meta.title + '本月浮盈亏' + formatSignedCurrency(pnl) + '">',
-        "<span>浮盈亏</span>",
-        "<b>" + formatSignedCurrency(pnl) + "</b>",
+        '<div class="account-progress" aria-label="' + meta.title + '已投入' + investPercent + '%">',
+        "<span>" + investPercent + "%</span>",
         "</div>",
         "</article>"
       ].join("");
@@ -375,9 +557,8 @@ function renderAccounts(state) {
       "<h3>" + meta.title + "</h3>",
       "<p>" + meta.description + "</p>",
       '<div class="account-metrics">',
-      "<span>预算 <b>" + yuan.format(budget) + "</b></span>",
-      "<span>已用 <b>" + yuan.format(spent) + "</b></span>",
-      "<span>剩余 <b>" + yuan.format(left) + "</b></span>",
+      '<button class="metric-link" data-account-view="' + id + '" data-view-mode="budget" data-nav="account-view" data-parent-nav="budget" type="button">预算 <b>' + yuan.format(budget) + "</b></button>",
+      '<button class="metric-link" data-account-view="' + id + '" data-view-mode="spent" data-nav="account-view" data-parent-nav="budget" type="button">已用 <b>' + yuan.format(spent) + "</b></button>",
       "</div>",
       "</div>",
       '<div class="account-progress" aria-label="' + meta.title + '已用' + percent + '%">',
@@ -392,6 +573,12 @@ function formatSignedCurrency(value) {
   const amount = Number(value || 0);
   const sign = amount > 0 ? "+" : amount < 0 ? "-" : "";
   return sign + yuan.format(Math.abs(amount));
+}
+
+function formatSignedPercent(value) {
+  const amount = Number(value || 0);
+  const sign = amount > 0 ? "+" : amount < 0 ? "-" : "";
+  return sign + (Math.abs(amount) * 100).toFixed(1) + "%";
 }
 
 function formatPlainNumber(value) {

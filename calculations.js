@@ -1,4 +1,4 @@
-import { accountMeta, accountOrder, investmentKinds } from "./state.js?v=budget-fix3";
+import { accountMeta, accountOrder, investmentKinds } from "./state.js?v=budget-analysis1";
 
 export function monthKeyFromDate(date) {
   return String(date || "").slice(0, 7);
@@ -130,4 +130,19 @@ export function totalAssetChange(state) {
   return cashBalance(state) + investmentPnl(state);
 }
 
+export function breakdownTotal(state, accountId) {
+  const sections = state.accountBreakdowns?.[accountId] ?? [];
+  return sections.reduce((sum, items) =>
+    sum + (Array.isArray(items) ? items.reduce((s, item) => s + Number(item.amount || 0), 0) : 0), 0);
+}
 
+export function spentBySection(state, accountId, sectionTitle) {
+  if (accountMeta[accountId]?.type === "investment") {
+    return investmentTransactions(state)
+      .filter((entry) => entry.category === sectionTitle && investmentDirection(entry) > 0)
+      .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+  }
+  return expenseTransactions(state)
+    .filter((entry) => entry.accountId === accountId && entry.category === sectionTitle)
+    .reduce((sum, entry) => sum + Number(entry.monthAmount ?? entry.amount ?? 0), 0);
+}

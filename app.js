@@ -1,6 +1,6 @@
-import { bindEvents } from "./events.js?v=budget-fix3";
-import { renderApp } from "./render.js?v=budget-fix3";
-import { loadState, saveState } from "./state.js?v=budget-fix3";
+import { bindEvents } from "./events.js?v=budget-analysis1";
+import { renderApp } from "./render.js?v=budget-analysis1";
+import { loadState, saveState } from "./state.js?v=budget-analysis1";
 
 const stateRef = {
   current: loadState()
@@ -25,5 +25,4 @@ bindEvents({
 });
 
 render();
-
 

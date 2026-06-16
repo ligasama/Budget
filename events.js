@@ -1,12 +1,42 @@
-import { accountOrder, allocateIncome, customRatios, defaultMonth, defaultState, stylePresets, today, tx } from "./state.js?v=budget-fix3";
-import { renderMonthlyResult, renderQuickForm } from "./render.js?v=budget-fix3";
+import { accountOrder, allocateIncome, customRatios, defaultMonth, defaultState, stylePresets, today, tx } from "./state.js?v=budget-analysis1";
+import { renderMonthlyResult, renderQuickForm } from "./render.js?v=budget-analysis1";
 
 export function bindEvents({ stateRef, setState, render, visibleResultInfo }) {
   document.addEventListener("click", (event) => {
     const target = event.target;
+    const accountViewButton = target.closest?.("[data-account-view]");
+    if (accountViewButton) {
+      stateRef.current.viewAccountId = accountViewButton.dataset.accountView;
+      stateRef.current.viewMode = accountViewButton.dataset.viewMode;
+      render();
+    }
+    const editAccountBudgetButton = target.closest?.("[data-edit-account-budget]");
+    if (editAccountBudgetButton) {
+      stateRef.current.managerAccountId = editAccountBudgetButton.dataset.editAccountBudget;
+      stateRef.current.managerViewMode = "budget";
+      render();
+    }
+    const managerAccountButton = target.closest?.("[data-manager-account]");
+    if (managerAccountButton) {
+      stateRef.current.managerAccountId = managerAccountButton.dataset.managerAccount;
+      stateRef.current.managerViewMode = "budget";
+      render();
+      return;
+    }
+    const managerModeButton = target.closest?.("[data-manager-mode]");
+    if (managerModeButton) {
+      stateRef.current.managerViewMode = managerModeButton.dataset.managerMode === "spent" ? "spent" : "budget";
+      render();
+      return;
+    }
     const nav = target.closest?.("[data-nav]");
     if (nav) {
       const screenName = nav.dataset.nav;
+      if (screenName === "me") {
+        stateRef.current.managerAccountId = "survival";
+        stateRef.current.managerViewMode = "budget";
+        render();
+      }
       const activeNav = nav.dataset.parentNav || (screenName === "budget-settings" ? "budget" : screenName);
       document.querySelectorAll(".bottom-nav [data-nav]").forEach((button) => button.classList.toggle("is-active", button.dataset.nav === activeNav));
       document.querySelectorAll("[data-screen]").forEach((screen) => screen.classList.toggle("is-active", screen.dataset.screen === screenName));
@@ -285,6 +315,14 @@ function removeBreakdownItem(state, accountId, sectionIndex, itemId) {
   state.accountBreakdowns[accountId][sectionIndex] = nextItems;
 }
 
+function syncBudgetFromBreakdown(state, accountId) {
+  return;
+}
+
+export function syncAllBreakdownBudgets(state) {
+  accountOrder.forEach((id) => syncBudgetFromBreakdown(state, id));
+}
+
 function restoreBudgetInput(budgetId, value) {
   const input = document.querySelector(`[data-budget="${budgetId}"]`);
   if (!input) return;
@@ -298,5 +336,3 @@ function parseBudgetInput(value) {
   const numericValue = String(value).replace(/[^\d.]/g, "");
   return Number(numericValue || 0);
 }
-
-
