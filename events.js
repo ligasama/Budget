@@ -1,9 +1,94 @@
-import { accountOrder, allocateIncome, customRatios, defaultMonth, defaultState, stylePresets, today, tx } from "./state.js?v=budget-analysis1";
-import { renderMonthlyResult, renderQuickForm } from "./render.js?v=budget-analysis1";
+import {
+  accountMeta,
+  accountOrder,
+  allocateIncome,
+  categories,
+  customRatios,
+  defaultLedgerAdvancedFilters,
+  defaultMonth,
+  defaultState,
+  investmentAccountOrder,
+  investmentKinds,
+  spendingAccountOrder,
+  stylePresets,
+  today,
+  tx,
+  yuan
+} from "./state.js?v=ledger-detail1";
+import { renderMonthlyResult, renderQuickForm } from "./render.js?v=ledger-detail1";
+import {
+  applyLedgerAdvancedFilters,
+  monthTransactions
+} from "./calculations.js?v=ledger-detail1";
 
 export function bindEvents({ stateRef, setState, render, visibleResultInfo }) {
+  let swipeState = null;
+  let ignoreNextLedgerClick = false;
+
   document.addEventListener("click", (event) => {
     const target = event.target;
+    const ledgerDeleteButton = target.closest?.("[data-ledger-delete]");
+    if (ledgerDeleteButton) {
+      deleteTransaction(stateRef.current, ledgerDeleteButton.dataset.ledgerDelete);
+      closeTransactionDialog();
+      render();
+      return;
+    }
+    const ledgerOpenButton = target.closest?.("[data-ledger-open]");
+    if (ledgerOpenButton) {
+      const swipeRow = ledgerOpenButton.closest("[data-swipe-row]");
+      if (ignoreNextLedgerClick || swipeRow?.dataset.skipOpen === "true") {
+        event.preventDefault();
+        return;
+      }
+      closeOpenSwipeRows();
+      openTransactionDialog(stateRef.current, ledgerOpenButton.dataset.ledgerOpen);
+      return;
+    }
+    if (target.closest?.("[data-close-transaction]")) {
+      closeTransactionDialog();
+      return;
+    }
+    if (target.closest?.("[data-open-ledger-filter]")) {
+      openLedgerFilterSheet();
+      updateLedgerFilterPreview(stateRef.current);
+      return;
+    }
+    if (target.closest?.("[data-close-ledger-filter]")) {
+      closeLedgerFilterSheet();
+      return;
+    }
+    const ledgerAccountFilter = target.closest?.("[data-ledger-account-filter]");
+    if (ledgerAccountFilter) {
+      ledgerAccountFilter.classList.toggle("is-active");
+      updateLedgerFilterPreview(stateRef.current);
+      return;
+    }
+    const ledgerAmountFilter = target.closest?.("[data-ledger-amount-filter]");
+    if (ledgerAmountFilter) {
+      document.querySelectorAll("[data-ledger-amount-filter]").forEach((button) => button.classList.toggle("is-active", button === ledgerAmountFilter));
+      updateLedgerFilterPreview(stateRef.current);
+      return;
+    }
+    const ledgerSortFilter = target.closest?.("[data-ledger-sort-filter]");
+    if (ledgerSortFilter) {
+      document.querySelectorAll("[data-ledger-sort-filter]").forEach((button) => button.classList.toggle("is-active", button === ledgerSortFilter));
+      updateLedgerFilterPreview(stateRef.current);
+      return;
+    }
+    if (target.closest?.("[data-reset-ledger-filter]")) {
+      stateRef.current.ledgerAdvancedFilters = defaultLedgerFilters();
+      render();
+      openLedgerFilterSheet();
+      updateLedgerFilterPreview(stateRef.current);
+      return;
+    }
+    const transactionSaveButton = target.closest?.("[data-save-transaction]");
+    if (transactionSaveButton) {
+      event.preventDefault();
+      saveTransactionDialog(stateRef.current, render);
+      return;
+    }
     const accountViewButton = target.closest?.("[data-account-view]");
     if (accountViewButton) {
       stateRef.current.viewAccountId = accountViewButton.dataset.accountView;
@@ -94,6 +179,12 @@ export function bindEvents({ stateRef, setState, render, visibleResultInfo }) {
       stateRef.current.quickType = typeButton.dataset.typeButton;
       renderQuickForm(stateRef.current);
     }
+    const ledgerFilterButton = target.closest?.("[data-ledger-filter]");
+    if (ledgerFilterButton) {
+      stateRef.current.ledgerFilter = ledgerFilterButton.dataset.ledgerFilter;
+      render();
+      return;
+    }
     const investmentKindButton = target.closest?.("[data-investment-kind]");
     if (investmentKindButton) {
       stateRef.current.investmentKind = investmentKindButton.dataset.investmentKind;
@@ -110,6 +201,49 @@ export function bindEvents({ stateRef, setState, render, visibleResultInfo }) {
     }
   });
 
+  document.addEventListener("pointerdown", (event) => {
+    const row = event.target.closest?.("[data-swipe-row]");
+    if (!row || event.target.closest?.(".ledger-delete-action, input, select, textarea")) return;
+    closeOpenSwipeRows(row);
+    swipeState = {
+      row,
+      content: row.querySelector(".ledger-transaction-row"),
+      startX: event.clientX,
+      startY: event.clientY,
+      lastX: 0,
+      moved: false
+    };
+  });
+
+  document.addEventListener("pointermove", (event) => {
+    if (!swipeState?.content) return;
+    const dx = event.clientX - swipeState.startX;
+    const dy = event.clientY - swipeState.startY;
+    if (Math.abs(dy) > Math.abs(dx) && !swipeState.moved) return;
+    const nextX = Math.max(-88, Math.min(0, dx));
+    if (Math.abs(nextX) > 6) swipeState.moved = true;
+    swipeState.lastX = nextX;
+    swipeState.content.style.transform = `translateX(${nextX}px)`;
+    event.preventDefault();
+  });
+
+  document.addEventListener("pointerup", () => {
+    if (!swipeState?.content) return;
+    const shouldOpen = swipeState.lastX < -42;
+    swipeState.content.style.transform = "";
+    swipeState.row.classList.toggle("is-delete-open", shouldOpen);
+    if (swipeState.moved) {
+      ignoreNextLedgerClick = true;
+      swipeState.row.dataset.skipOpen = "true";
+      const swipedRow = swipeState.row;
+      window.setTimeout(() => {
+        ignoreNextLedgerClick = false;
+        delete swipedRow.dataset.skipOpen;
+      }, 700);
+    }
+    swipeState = null;
+  });
+
   document.addEventListener("input", (event) => {
     const target = event.target;
     let shouldRender = false;
@@ -120,6 +254,10 @@ export function bindEvents({ stateRef, setState, render, visibleResultInfo }) {
       applyManualBudgets(stateRef.current);
       render();
       restoreBudgetInput(budgetId, rawValue);
+      return;
+    }
+    if (target.id === "ledgerKeywordInput") {
+      updateLedgerFilterPreview(stateRef.current);
       return;
     }
     if (target.id === "plannedIncomeInput") {
@@ -146,7 +284,7 @@ export function bindEvents({ stateRef, setState, render, visibleResultInfo }) {
 
   document.addEventListener("change", (event) => {
     const target = event.target;
-    if (target.id === "monthInput") {
+    if (target.id === "monthInput" || target.id === "ledgerMonthInput") {
       stateRef.current.currentMonth = target.value || defaultMonth;
       render();
     }
@@ -159,6 +297,7 @@ export function bindEvents({ stateRef, setState, render, visibleResultInfo }) {
       render();
     }
     if (target.id === "accountInput") renderQuickForm(stateRef.current);
+    if (target.id === "transactionAccountInput") updateTransactionCategoryOptions();
   });
 
   document.addEventListener("focusout", (event) => {
@@ -216,6 +355,15 @@ export function bindEvents({ stateRef, setState, render, visibleResultInfo }) {
   });
 
   document.addEventListener("submit", (event) => {
+    const form = event.target.closest?.("#ledgerFilterPanel");
+    if (!form) return;
+    event.preventDefault();
+    stateRef.current.ledgerAdvancedFilters = readLedgerFilterDraft();
+    closeLedgerFilterSheet();
+    render();
+  });
+
+  document.addEventListener("submit", (event) => {
     const form = event.target.closest?.("[data-breakdown-form]");
     if (!form) return;
     event.preventDefault();
@@ -228,12 +376,148 @@ export function bindEvents({ stateRef, setState, render, visibleResultInfo }) {
     render();
   });
 
+  document.querySelector("#transactionForm").addEventListener("submit", (event) => {
+    event.preventDefault();
+    saveTransactionDialog(stateRef.current, render);
+  });
+
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       closeSheet();
+      closeLedgerFilterSheet();
       closeCustomRatioDialog();
+      closeTransactionDialog();
     }
   });
+}
+
+function openTransactionDialog(state, id) {
+  const entry = findTransaction(state, id);
+  if (!entry) return;
+  const dialog = document.querySelector("#transactionDialog");
+  dialog.dataset.transactionType = entry.type;
+  const account = entry.type === "income" ? null : accountMeta[entry.accountId];
+  const amount = Math.abs(Number(entry.amount || 0));
+  const prefix = entry.type === "income" || entry.investmentKind === "redeem" ? "+" : "-";
+  document.querySelector("#transactionIdInput").value = entry.id;
+  document.querySelector("#transactionAmountInput").value = amount || "";
+  document.querySelector("#transactionNoteInput").value = entry.note || "";
+  document.querySelector("#transactionDateInput").value = entry.date || today;
+  document.querySelector("#transactionAmortizationInput").value = Math.max(1, Math.floor(Number(entry.amortizationMonths || 1)));
+  document.querySelector("#transactionDetailIcon").textContent = entry.type === "income" ? "入" : account?.icon || "·";
+  document.querySelector("#transactionDetailTitle").textContent = entry.note || entry.category || transactionTypeLabel(entry.type);
+  document.querySelector("#transactionDetailMeta").textContent = transactionMetaLabel(entry);
+  document.querySelector("#transactionDetailAmount").textContent = prefix + yuan.format(amount);
+  document.querySelector(".transaction-detail-card").style.setProperty("--detail-color", account?.color || "#4e8f52");
+  document.querySelector(".transaction-detail-card").style.setProperty("--detail-soft", account?.soft || "#edf4e8");
+
+  renderTransactionAccountOptions(entry);
+  renderTransactionInvestmentOptions(entry);
+  updateTransactionCategoryOptions(entry.category);
+  document.querySelector("#transactionAccountField").hidden = entry.type === "income";
+  document.querySelector("#transactionInvestmentKindField").hidden = entry.type !== "investment";
+  document.querySelector("#transactionAmortizationField").hidden = entry.type !== "expense";
+  dialog.classList.add("is-open");
+  dialog.setAttribute("aria-hidden", "false");
+  window.setTimeout(() => document.querySelector("#transactionAmountInput")?.focus(), 0);
+}
+
+function closeTransactionDialog() {
+  const dialog = document.querySelector("#transactionDialog");
+  dialog?.classList.remove("is-open");
+  dialog?.setAttribute("aria-hidden", "true");
+}
+
+function saveTransactionDialog(state, render) {
+  const id = document.querySelector("#transactionIdInput").value;
+  const entry = findTransaction(state, id);
+  if (!entry) return;
+  const amount = Number(document.querySelector("#transactionAmountInput").value || 0);
+  if (amount <= 0) return;
+  entry.amount = amount;
+  entry.note = document.querySelector("#transactionNoteInput").value.trim();
+  entry.date = document.querySelector("#transactionDateInput").value || today;
+  entry.category = document.querySelector("#transactionCategoryInput").value;
+  if (entry.type === "income") {
+    entry.accountId = "income";
+  } else {
+    entry.accountId = document.querySelector("#transactionAccountInput").value;
+  }
+  if (entry.type === "investment") {
+    entry.investmentKind = document.querySelector("#transactionInvestmentKindInput").value;
+  }
+  if (entry.type === "expense") {
+    entry.amortizationMonths = Math.max(1, Math.floor(Number(document.querySelector("#transactionAmortizationInput").value || 1)));
+  }
+  closeTransactionDialog();
+  render();
+}
+
+function renderTransactionAccountOptions(entry) {
+  const accountInput = document.querySelector("#transactionAccountInput");
+  const accountIds = entry.type === "investment" ? investmentAccountOrder : spendingAccountOrder;
+  accountInput.innerHTML = accountIds.map((id) => `<option value="${id}">${accountMeta[id].title}</option>`).join("");
+  if (accountIds.includes(entry.accountId)) accountInput.value = entry.accountId;
+}
+
+function renderTransactionInvestmentOptions(entry) {
+  const input = document.querySelector("#transactionInvestmentKindInput");
+  input.innerHTML = Object.entries(investmentKinds)
+    .map(([key, label]) => `<option value="${key}">${label}</option>`)
+    .join("");
+  input.value = entry.investmentKind || "buyFund";
+}
+
+function updateTransactionCategoryOptions(selectedCategory = "") {
+  const id = document.querySelector("#transactionIdInput")?.value;
+  const type = transactionDialogEntryType(id);
+  const accountId = document.querySelector("#transactionAccountInput")?.value || "survival";
+  const input = document.querySelector("#transactionCategoryInput");
+  const currentValue = selectedCategory || input.value;
+  const categorySet = type === "income"
+    ? categories.income
+    : type === "investment"
+      ? categories.assets
+      : categories[accountId] || [];
+  const options = categorySet.includes(currentValue) || !currentValue
+    ? categorySet
+    : [currentValue, ...categorySet];
+  input.innerHTML = options.map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join("");
+  input.value = options.includes(currentValue) ? currentValue : options[0] || "";
+}
+
+function transactionDialogEntryType(id) {
+  return document.querySelector("#transactionDialog")?.dataset.transactionType || "expense";
+}
+
+function transactionMetaLabel(entry) {
+  const account = entry.type === "income" ? "收入" : accountMeta[entry.accountId]?.title || "账户";
+  const kind = entry.type === "investment" ? investmentKinds[entry.investmentKind] || "投资" : entry.category || "未分类";
+  return [account, kind, entry.date].filter(Boolean).join(" · ");
+}
+
+function transactionTypeLabel(type) {
+  if (type === "income") return "收入";
+  if (type === "investment") return "投资";
+  return "支出";
+}
+
+function findTransaction(state, id) {
+  return state.transactions.find((entry) => entry.id === id);
+}
+
+function deleteTransaction(state, id) {
+  state.transactions = state.transactions.filter((entry) => entry.id !== id);
+}
+
+function closeOpenSwipeRows(exceptRow = null) {
+  document.querySelectorAll(".ledger-swipe-row.is-delete-open").forEach((row) => {
+    if (row !== exceptRow) row.classList.remove("is-delete-open");
+  });
+}
+
+function escapeHtml(value) {
+  return String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 }
 
 function openSheet() {
@@ -245,6 +529,53 @@ function openSheet() {
 function closeSheet() {
   document.querySelector("#entrySheet").classList.remove("is-open");
   document.querySelector("#entrySheet").setAttribute("aria-hidden", "true");
+}
+
+function openLedgerFilterSheet() {
+  const sheet = document.querySelector("#ledgerFilterSheet");
+  sheet?.classList.add("is-open");
+  sheet?.setAttribute("aria-hidden", "false");
+  window.setTimeout(() => document.querySelector("#ledgerKeywordInput")?.focus(), 0);
+}
+
+function closeLedgerFilterSheet() {
+  const sheet = document.querySelector("#ledgerFilterSheet");
+  sheet?.classList.remove("is-open");
+  sheet?.setAttribute("aria-hidden", "true");
+}
+
+function defaultLedgerFilters() {
+  return structuredClone(defaultLedgerAdvancedFilters);
+}
+
+function readLedgerFilterDraft() {
+  const activeAmount = document.querySelector("[data-ledger-amount-filter].is-active")?.dataset.ledgerAmountFilter || "all";
+  const activeSort = document.querySelector("[data-ledger-sort-filter].is-active")?.dataset.ledgerSortFilter || "newest";
+  const accounts = [...document.querySelectorAll("[data-ledger-account-filter].is-active")].map((button) => button.dataset.ledgerAccountFilter);
+  return {
+    keyword: document.querySelector("#ledgerKeywordInput")?.value.trim() || "",
+    accounts,
+    amountRange: activeAmount,
+    sort: activeSort
+  };
+}
+
+function updateLedgerFilterPreview(state) {
+  const applyButton = document.querySelector("#ledgerFilterApplyButton");
+  if (!applyButton) return;
+  const rows = ledgerBaseRows(state);
+  const draft = readLedgerFilterDraft();
+  const count = applyLedgerAdvancedFilters(rows, draft).length;
+  applyButton.textContent = "查看 " + count + " 笔";
+}
+
+function ledgerBaseRows(state) {
+  const activeFilter = ["expense", "income", "investment"].includes(state.ledgerFilter) ? state.ledgerFilter : "all";
+  const rows = [...monthTransactions(state)].sort((a, b) => {
+    const dateDiff = String(b.date || "").localeCompare(String(a.date || ""));
+    return dateDiff || Number(b.createdAt || 0) - Number(a.createdAt || 0);
+  });
+  return activeFilter === "all" ? rows : rows.filter((entry) => entry.type === activeFilter);
 }
 
 function openCustomRatioDialog() {

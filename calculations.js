@@ -1,4 +1,4 @@
-import { accountMeta, accountOrder, investmentKinds } from "./state.js?v=budget-analysis1";
+import { accountMeta, accountOrder, investmentKinds } from "./state.js?v=ledger-detail1";
 
 export function monthKeyFromDate(date) {
   return String(date || "").slice(0, 7);
@@ -47,6 +47,73 @@ export function monthTransactions(state) {
     .filter((entry) => isExpenseActiveInMonth(entry, state.currentMonth))
     .map((entry) => withAmortizationView(entry, state.currentMonth));
   return [...directRows, ...expenseRows];
+}
+
+export function transactionDisplayAmount(entry) {
+  return Math.abs(Number(entry.monthAmount ?? entry.amount ?? 0));
+}
+
+export function ledgerAdvancedFilterCount(filters = {}) {
+  let count = 0;
+  if (String(filters.keyword || "").trim()) count += 1;
+  if (Array.isArray(filters.accounts) && filters.accounts.length) count += 1;
+  if (filters.amountRange && filters.amountRange !== "all") count += 1;
+  if (filters.sort && filters.sort !== "newest") count += 1;
+  return count;
+}
+
+export function applyLedgerAdvancedFilters(rows, filters = {}) {
+  const keyword = String(filters.keyword || "").trim().toLowerCase();
+  const accounts = Array.isArray(filters.accounts) ? filters.accounts : [];
+  const amountRange = filters.amountRange || "all";
+  const sort = filters.sort || "newest";
+  return rows
+    .filter((entry) => {
+      if (accounts.length && !accounts.includes(ledgerAccountKey(entry))) return false;
+      if (!matchesLedgerAmountRange(transactionDisplayAmount(entry), amountRange)) return false;
+      if (keyword && !ledgerSearchText(entry).includes(keyword)) return false;
+      return true;
+    })
+    .sort((a, b) => compareLedgerRows(a, b, sort));
+}
+
+function ledgerAccountKey(entry) {
+  return entry.type === "income" ? "income" : entry.accountId;
+}
+
+function matchesLedgerAmountRange(amount, range) {
+  if (range === "under100") return amount < 100;
+  if (range === "100-500") return amount >= 100 && amount <= 500;
+  if (range === "500-2000") return amount >= 500 && amount <= 2000;
+  if (range === "over2000") return amount > 2000;
+  return true;
+}
+
+function compareLedgerRows(a, b, sort) {
+  if (sort === "amountDesc") {
+    return transactionDisplayAmount(b) - transactionDisplayAmount(a) || compareLedgerRows(a, b, "newest");
+  }
+  if (sort === "amountAsc") {
+    return transactionDisplayAmount(a) - transactionDisplayAmount(b) || compareLedgerRows(a, b, "newest");
+  }
+  const dateDiff = String(b.date || "").localeCompare(String(a.date || ""));
+  return dateDiff || Number(b.createdAt || 0) - Number(a.createdAt || 0);
+}
+
+function ledgerSearchText(entry) {
+  const account = entry.type === "income" ? "收入" : accountMeta[entry.accountId]?.title || "";
+  const shortAccount = entry.type === "income" ? "收入" : accountMeta[entry.accountId]?.shortTitle || "";
+  const investmentKind = entry.type === "investment" ? investmentKinds[entry.investmentKind] || "" : "";
+  const typeLabel = entry.type === "income" ? "收入" : entry.type === "investment" ? "投资" : "支出";
+  return [
+    entry.note,
+    entry.category,
+    entry.date,
+    account,
+    shortAccount,
+    investmentKind,
+    typeLabel
+  ].filter(Boolean).join(" ").toLowerCase();
 }
 
 export function expenseTransactions(state) {

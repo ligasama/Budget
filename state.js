@@ -146,6 +146,13 @@ export const investmentKinds = {
   transferAsset: "转入资产账户"
 };
 
+export const defaultLedgerAdvancedFilters = {
+  keyword: "",
+  accounts: [],
+  amountRange: "all",
+  sort: "newest"
+};
+
 const now = new Date();
 export const defaultMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 export const today = now.toISOString().slice(0, 10);
@@ -248,6 +255,8 @@ export const defaultState = {
   plannedIncome: 29000,
   totalBudget: 29000,
   quickType: "expense",
+  ledgerFilter: "all",
+  ledgerAdvancedFilters: structuredClone(defaultLedgerAdvancedFilters),
   investmentKind: "buyFund",
   budgetStyle: "stable",
   manualBudgetStyle: false,
@@ -285,6 +294,8 @@ export function normalizeState(candidate) {
     budgetStyle,
     managerAccountId: accountOrder.includes(candidate.managerAccountId) ? candidate.managerAccountId : "survival",
     managerViewMode: candidate.managerViewMode === "spent" ? "spent" : "budget",
+    ledgerFilter: ["all", "expense", "income", "investment"].includes(candidate.ledgerFilter) ? candidate.ledgerFilter : "all",
+    ledgerAdvancedFilters: normalizeLedgerAdvancedFilters(candidate.ledgerAdvancedFilters),
     ratios,
     customRatios: savedCustomRatios,
     budgets: { ...allocateIncome(totalBudget, ratios), ...(candidate.budgets ?? {}) },
@@ -306,6 +317,16 @@ function mergeAccountBreakdowns(savedBreakdowns) {
     });
   });
   return merged;
+}
+
+function normalizeLedgerAdvancedFilters(filters = {}) {
+  const accountCandidates = Array.isArray(filters.accounts) ? filters.accounts : [];
+  return {
+    keyword: typeof filters.keyword === "string" ? filters.keyword : "",
+    accounts: accountCandidates.filter((id) => [...accountOrder, "income"].includes(id)),
+    amountRange: ["all", "under100", "100-500", "500-2000", "over2000"].includes(filters.amountRange) ? filters.amountRange : "all",
+    sort: ["newest", "amountDesc", "amountAsc"].includes(filters.sort) ? filters.sort : "newest"
+  };
 }
 
 export function loadState() {

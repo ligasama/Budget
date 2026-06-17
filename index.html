@@ -3,8 +3,9 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="Cache-Control" content="no-store">
     <title>Budget</title>
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="styles.css?v=ledger-detail1">
   </head>
   <body>
     <main class="app-shell">
@@ -96,11 +97,50 @@
         </section>
       </section>
 
-      <section class="screen secondary-screen" data-screen="ledger">
-        <header class="simple-header">
-          <button class="back-home-button" data-nav="budget" type="button" aria-label="返回首页">‹ 首页</button>
+      <section class="screen ledger-screen" data-screen="ledger">
+        <div class="status-bar" aria-hidden="true">
+          <strong>9:41</strong>
+          <span class="system-icons">▮▮▮ Wi-Fi  ▰</span>
+        </div>
+
+        <header class="ledger-header">
           <h1>流水</h1>
+          <label class="month-control ledger-month-control" aria-label="选择月份">
+            <span class="month-pill">
+              <strong id="ledgerMonthText">2026年06月</strong>
+              <span class="chevron">⌄</span>
+            </span>
+            <span class="calendar-button" aria-hidden="true">▣</span>
+            <input id="ledgerMonthInput" type="month">
+          </label>
         </header>
+        <section class="ledger-summary-card" aria-label="本月流水概览">
+          <div>
+            <span>本月支出</span>
+            <strong id="ledgerExpenseTotal">- ¥0</strong>
+          </div>
+          <div>
+            <span>本月收入</span>
+            <strong id="ledgerIncomeTotal">+ ¥0</strong>
+          </div>
+          <div>
+            <span>投资转入</span>
+            <strong id="ledgerInvestmentTotal">¥0</strong>
+          </div>
+        </section>
+        <div class="ledger-toolbar" aria-label="流水筛选">
+          <div class="ledger-tabs" role="tablist" aria-label="流水类型">
+            <button class="is-active" data-ledger-filter="all" type="button">全部</button>
+            <button data-ledger-filter="expense" type="button">支出</button>
+            <button data-ledger-filter="income" type="button">收入</button>
+            <button data-ledger-filter="investment" type="button">投资</button>
+          </div>
+          <button class="ledger-filter-button" data-open-ledger-filter type="button" aria-label="筛选">
+            <span aria-hidden="true">⌁</span>
+            <span class="ledger-filter-label">筛选</span>
+            <b id="ledgerFilterCount" hidden>0</b>
+          </button>
+        </div>
         <div class="transaction-list" id="transactionList"></div>
       </section>
 
@@ -199,6 +239,62 @@
       </form>
     </div>
 
+    <div class="transaction-dialog" id="transactionDialog" aria-hidden="true">
+      <div class="transaction-dialog-backdrop" data-close-transaction></div>
+      <form class="transaction-dialog-panel" id="transactionForm">
+        <div class="sheet-head">
+          <h2>明细详情</h2>
+          <button class="icon-button" type="button" data-close-transaction aria-label="关闭">×</button>
+        </div>
+        <div class="transaction-detail-card">
+          <span id="transactionDetailIcon" aria-hidden="true">·</span>
+          <div>
+            <strong id="transactionDetailTitle">明细</strong>
+            <em id="transactionDetailMeta">账户 · 分类</em>
+          </div>
+          <b id="transactionDetailAmount">¥0</b>
+        </div>
+        <input id="transactionIdInput" type="hidden">
+        <label>
+          <span>金额</span>
+          <input id="transactionAmountInput" type="number" min="0" step="0.01" inputmode="decimal" required>
+        </label>
+        <label id="transactionInvestmentKindField">
+          <span>投资类型</span>
+          <select id="transactionInvestmentKindInput"></select>
+        </label>
+        <label id="transactionAccountField">
+          <span>账户</span>
+          <select id="transactionAccountInput"></select>
+        </label>
+        <label id="transactionCategoryField">
+          <span>分类</span>
+          <select id="transactionCategoryInput"></select>
+        </label>
+        <label>
+          <span>备注</span>
+          <input id="transactionNoteInput" type="text" placeholder="可选">
+        </label>
+        <label>
+          <span>日期</span>
+          <input id="transactionDateInput" type="date">
+        </label>
+        <label class="amortization-field" id="transactionAmortizationField">
+          <span>摊销周期</span>
+          <div class="months-input">
+            <input id="transactionAmortizationInput" type="number" min="1" max="120" step="1" inputmode="numeric">
+            <b>个月</b>
+          </div>
+        </label>
+        <button class="primary-button" data-save-transaction type="submit">保存修改</button>
+      </form>
+    </div>
+
+    <div class="ledger-filter-sheet" id="ledgerFilterSheet" aria-hidden="true">
+      <div class="ledger-filter-backdrop" data-close-ledger-filter></div>
+      <form class="ledger-filter-panel" id="ledgerFilterPanel"></form>
+    </div>
+
     <div class="sheet" id="entrySheet" aria-hidden="true">
       <div class="sheet-backdrop" data-close-sheet></div>
       <form class="entry-panel" id="entryForm">
@@ -247,6 +343,8 @@
       </form>
     </div>
 
-    <script type="module" src="app.js?v=budget-analysis1"></script>
+    <script type="module">
+      import("./app.js?v=ledger-detail1-" + Date.now());
+    </script>
   </body>
 </html>

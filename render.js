@@ -11,9 +11,10 @@
   stylePresets,
   today,
   yuan
-} from "./state.js?v=budget-analysis1";
+} from "./state.js?v=ledger-detail1";
 import {
   amortizationMonths,
+  applyLedgerAdvancedFilters,
   assetTransferInTotal,
   assetTransferOutTotal,
   assetTransferTotal,
@@ -26,9 +27,11 @@ import {
   monthTransactions,
   spentByAccount,
   spentBySection,
+  ledgerAdvancedFilterCount,
+  transactionDisplayAmount,
   totalIncome,
   totalBudget
-} from "./calculations.js?v=budget-analysis1";
+} from "./calculations.js?v=ledger-detail1";
 
 export function renderApp(state, visibleResultInfo) {
   renderBudgetPage(state, visibleResultInfo);
@@ -47,31 +50,220 @@ export function renderBudgetPage(state, visibleResultInfo) {
 }
 
 export function renderLedgerPage(state) {
-  const rows = [...monthTransactions(state)].sort((a, b) => b.createdAt - a.createdAt).map((entry) => {
-    const isInvestmentRedeem = entry.type === "investment" && investmentDirection(entry) < 0;
-    const prefix = entry.type === "income" || isInvestmentRedeem ? "+" : "-";
-    const account = entry.type === "income" ? "收入" : accountMeta[entry.accountId]?.title;
-    const amount = Number(entry.monthAmount ?? entry.amount ?? 0);
-    const isAmortized = entry.type === "expense" && amortizationMonths(entry) > 1;
-    const noteParts = [
-      entry.date,
-      isAmortized ? `摊销 ${entry.amortizationIndex}/${entry.amortizationMonths} · 原金额 ${yuan.format(entry.amount)}` : "",
-      entry.note ? escapeHtml(entry.note) : ""
-    ].filter(Boolean);
-    const category = entry.type === "investment"
-      ? `${investmentKinds[entry.investmentKind] || "投资"} · ${entry.category}`
-      : entry.category;
-    return `
-      <div class="transaction-row">
-        <div>
-          <strong>${escapeHtml(category)} · ${account}</strong>
-          <span>${noteParts.join(" · ")}</span>
-        </div>
-        <b>${prefix}${yuan.format(amount)}</b>
-      </div>
-    `;
+  const ledgerMonthInput = document.querySelector("#ledgerMonthInput");
+  const ledgerMonthText = document.querySelector("#ledgerMonthText");
+  if (ledgerMonthInput) ledgerMonthInput.value = state.currentMonth;
+  if (ledgerMonthText) ledgerMonthText.textContent = formatMonthLabel(state.currentMonth);
+
+  const allRows = [...monthTransactions(state)].sort((a, b) => {
+    const dateDiff = String(b.date || "").localeCompare(String(a.date || ""));
+    return dateDiff || Number(b.createdAt || 0) - Number(a.createdAt || 0);
+  });
+  const expenseTotal = allRows
+    .filter((entry) => entry.type === "expense")
+    .reduce((sum, entry) => sum + transactionAmount(entry), 0);
+  const incomeTotal = allRows
+    .filter((entry) => entry.type === "income")
+    .reduce((sum, entry) => sum + transactionAmount(entry), 0);
+  const investmentTotal = allRows
+    .filter((entry) => entry.type === "investment" && investmentDirection(entry) > 0)
+    .reduce((sum, entry) => sum + transactionAmount(entry), 0);
+
+  document.querySelector("#ledgerExpenseTotal").textContent = "- " + yuan.format(expenseTotal);
+  document.querySelector("#ledgerIncomeTotal").textContent = "+ " + yuan.format(incomeTotal);
+  document.querySelector("#ledgerInvestmentTotal").textContent = yuan.format(investmentTotal);
+
+  const activeFilter = ["expense", "income", "investment"].includes(state.ledgerFilter) ? state.ledgerFilter : "all";
+  const advancedFilterCount = ledgerAdvancedFilterCount(state.ledgerAdvancedFilters);
+  document.querySelectorAll("[data-ledger-filter]").forEach((button) => {
+    const isActive = button.dataset.ledgerFilter === activeFilter;
+    button.classList.toggle("is-active", isActive);
+    button.setAttribute("aria-selected", String(isActive));
+  });
+  const filterButton = document.querySelector("[data-open-ledger-filter]");
+  const filterCount = document.querySelector("#ledgerFilterCount");
+  if (filterButton) {
+    filterButton.classList.toggle("is-active", advancedFilterCount > 0);
+    filterButton.setAttribute("aria-pressed", String(advancedFilterCount > 0));
+  }
+  if (filterCount) {
+    filterCount.hidden = advancedFilterCount === 0;
+    filterCount.textContent = String(advancedFilterCount);
+  }
+
+  const baseRows = activeFilter === "all" ? allRows : allRows.filter((entry) => entry.type === activeFilter);
+  const rows = applyLedgerAdvancedFilters(baseRows, state.ledgerAdvancedFilters);
+  document.querySelector("#transactionList").innerHTML = renderLedgerResultSummary(rows, advancedFilterCount) + renderLedgerGroups(rows, advancedFilterCount > 0);
+  renderLedgerFilterSheet(state, baseRows);
+}
+
+function renderLedgerResultSummary(rows, advancedFilterCount) {
+  if (!advancedFilterCount) return "";
+  return '<p class="ledger-filter-result">已筛选 ' + rows.length + " 笔流水</p>";
+}
+
+function renderLedgerGroups(rows, isFiltered = false) {
+  if (!rows.length) return `<p class="ledger-empty empty-copy">${isFiltered ? "没有符合筛选的流水。" : "这个月还没有流水。"}</p>`;
+  const groups = rows.reduce((result, entry) => {
+    const key = entry.date || "未标日期";
+    if (!result.has(key)) result.set(key, []);
+    result.get(key).push(entry);
+    return result;
+  }, new Map());
+
+  return [...groups.entries()].map(([date, entries]) => {
+    const expense = entries.filter((entry) => entry.type === "expense").reduce((sum, entry) => sum + transactionAmount(entry), 0);
+    const income = entries.filter((entry) => entry.type === "income").reduce((sum, entry) => sum + transactionAmount(entry), 0);
+    const investment = entries.filter((entry) => entry.type === "investment").reduce((sum, entry) => sum + transactionAmount(entry), 0);
+    return [
+      '<section class="ledger-day-group">',
+      '<div class="ledger-day-head">',
+      '<h2>' + formatLedgerDay(date) + "</h2>",
+      '<span>支出 ' + yuan.format(expense) + ' | 收入 ' + yuan.format(income) + ' | 投资 ' + yuan.format(investment) + "</span>",
+      "</div>",
+      '<div class="ledger-day-card">',
+      entries.map(renderLedgerRow).join(""),
+      "</div>",
+      "</section>"
+    ].join("");
   }).join("");
-  document.querySelector("#transactionList").innerHTML = rows || `<p class="empty-copy">这个月还没有流水。</p>`;
+}
+
+function renderLedgerFilterSheet(state, baseRows) {
+  const panel = document.querySelector("#ledgerFilterPanel");
+  if (!panel) return;
+  const filters = state.ledgerAdvancedFilters || {};
+  const selectedAccounts = new Set(Array.isArray(filters.accounts) ? filters.accounts : []);
+  const amountRange = filters.amountRange || "all";
+  const sort = filters.sort || "newest";
+  const previewCount = applyLedgerAdvancedFilters(baseRows, filters).length;
+  panel.innerHTML = [
+    '<div class="sheet-head">',
+    "<h2>筛选流水</h2>",
+    '<button class="icon-button" type="button" data-close-ledger-filter aria-label="关闭">×</button>',
+    "</div>",
+    '<label class="ledger-filter-search">',
+    "<span>关键词</span>",
+    '<input id="ledgerKeywordInput" type="search" placeholder="搜备注 / 分类 / 账户" value="' + escapeHtml(filters.keyword || "") + '">',
+    "</label>",
+    renderLedgerFilterSection("分类", renderLedgerAccountFilterOptions(selectedAccounts)),
+    renderLedgerFilterSection("金额", renderLedgerAmountFilterOptions(amountRange)),
+    renderLedgerFilterSection("排序", renderLedgerSortFilterOptions(sort)),
+    '<div class="ledger-filter-actions">',
+    '<button class="secondary-button" data-reset-ledger-filter type="button">重置</button>',
+    '<button class="primary-button" id="ledgerFilterApplyButton" type="submit">查看 ' + previewCount + " 笔</button>",
+    "</div>"
+  ].join("");
+}
+
+function renderLedgerFilterSection(title, body) {
+  return [
+    '<section class="ledger-filter-section">',
+    "<span>" + title + "</span>",
+    '<div class="ledger-filter-options">',
+    body,
+    "</div>",
+    "</section>"
+  ].join("");
+}
+
+function renderLedgerAccountFilterOptions(selectedAccounts) {
+  const options = [
+    ...["survival", "upgrade", "freedom", "assets"].map((id) => ({
+      id,
+      label: id === "assets" ? "资产" : accountMeta[id].shortTitle || accountMeta[id].title
+    })),
+    { id: "income", label: "收入" }
+  ];
+  return options.map((option) => {
+    const active = selectedAccounts.has(option.id) ? " is-active" : "";
+    return '<button class="' + active.trim() + '" data-ledger-account-filter="' + option.id + '" type="button">' + escapeHtml(option.label) + "</button>";
+  }).join("");
+}
+
+function renderLedgerAmountFilterOptions(selectedRange) {
+  const options = [
+    ["all", "全部"],
+    ["under100", "100以下"],
+    ["100-500", "100-500"],
+    ["500-2000", "500-2000"],
+    ["over2000", "2000以上"]
+  ];
+  return options.map(([value, label]) => {
+    const active = value === selectedRange ? " is-active" : "";
+    return '<button class="' + active.trim() + '" data-ledger-amount-filter="' + value + '" type="button">' + label + "</button>";
+  }).join("");
+}
+
+function renderLedgerSortFilterOptions(selectedSort) {
+  const options = [
+    ["newest", "最新优先"],
+    ["amountDesc", "金额最高"],
+    ["amountAsc", "金额最低"]
+  ];
+  return options.map(([value, label]) => {
+    const active = value === selectedSort ? " is-active" : "";
+    return '<button class="' + active.trim() + '" data-ledger-sort-filter="' + value + '" type="button">' + label + "</button>";
+  }).join("");
+}
+
+function renderLedgerRow(entry) {
+  const amount = transactionAmount(entry);
+  const isInvestmentRedeem = entry.type === "investment" && investmentDirection(entry) < 0;
+  const prefix = entry.type === "income" || isInvestmentRedeem ? "+" : "-";
+  const accountMetaForEntry = entry.type === "income" ? null : accountMeta[entry.accountId];
+  const account = entry.type === "income" ? "收入" : accountMetaForEntry?.title || "账户";
+  const category = entry.type === "investment"
+    ? investmentKinds[entry.investmentKind] || "投资"
+    : entry.category;
+  const title = entry.note || category || account;
+  const amortization = entry.type === "expense" && amortizationMonths(entry) > 1
+    ? "摊销 " + entry.amortizationIndex + "/" + entry.amortizationMonths
+    : "";
+  const subtitle = [
+    account,
+    entry.note ? category : "",
+    amortization
+  ].filter(Boolean).join(" · ");
+  const accountColor = accountMetaForEntry?.color || (entry.type === "income" ? "#4e8f52" : "#345f7d");
+  const accountSoft = accountMetaForEntry?.soft || (entry.type === "income" ? "#edf4e8" : "#edf3f7");
+
+  return [
+    '<div class="ledger-swipe-row" data-swipe-row="' + escapeHtml(entry.id) + '">',
+    '<button class="ledger-delete-action" data-ledger-delete="' + escapeHtml(entry.id) + '" type="button">删除</button>',
+    '<button class="transaction-row ledger-transaction-row is-' + entry.type + '" data-ledger-open="' + escapeHtml(entry.id) + '" type="button" style="--account-color:' + accountColor + '; --account-soft:' + accountSoft + '">',
+    '<span class="ledger-entry-icon" aria-hidden="true">' + ledgerIcon(entry) + "</span>",
+    '<div class="ledger-entry-main">',
+    "<strong>" + escapeHtml(title) + "</strong>",
+    "<span>" + escapeHtml(subtitle || "未分类") + "</span>",
+    "</div>",
+    '<b class="ledger-amount">' + prefix + yuan.format(amount) + "</b>",
+    "</button>",
+    "</div>"
+  ].join("");
+}
+
+function transactionAmount(entry) {
+  return transactionDisplayAmount(entry);
+}
+
+function ledgerIcon(entry) {
+  if (entry.type === "income") return "入";
+  return accountMeta[entry.accountId]?.icon || "·";
+}
+
+function formatLedgerDay(date) {
+  if (date === today) return "今天";
+  if (date === previousDate(today)) return "昨天";
+  const [, month, day] = String(date || "").split("-");
+  if (month && day) return Number(month) + "月" + Number(day) + "日";
+  return escapeHtml(date || "未标日期");
+}
+
+function previousDate(date) {
+  const value = new Date(date + "T00:00:00");
+  value.setDate(value.getDate() - 1);
+  return value.toISOString().slice(0, 10);
 }
 
 export function renderAssetsPage(state) {
