@@ -69,8 +69,8 @@ export function renderLedgerPage(state) {
     .filter((entry) => entry.type === "investment" && investmentDirection(entry) > 0)
     .reduce((sum, entry) => sum + transactionAmount(entry), 0);
 
-  document.querySelector("#ledgerExpenseTotal").textContent = "- " + yuan.format(expenseTotal);
-  document.querySelector("#ledgerIncomeTotal").textContent = "+ " + yuan.format(incomeTotal);
+  document.querySelector("#ledgerExpenseTotal").textContent = yuan.format(expenseTotal);
+  document.querySelector("#ledgerIncomeTotal").textContent = yuan.format(incomeTotal);
   document.querySelector("#ledgerInvestmentTotal").textContent = yuan.format(investmentTotal);
 
   const activeFilter = ["expense", "income", "investment"].includes(state.ledgerFilter) ? state.ledgerFilter : "all";
@@ -134,7 +134,9 @@ function renderLedgerFilterSheet(state, baseRows) {
   if (!panel) return;
   const filters = state.ledgerAdvancedFilters || {};
   const selectedAccounts = new Set(Array.isArray(filters.accounts) ? filters.accounts : []);
-  const amountRange = filters.amountRange || "all";
+  const selectedCategory = filters.category || "";
+  const hasCustomAmount = hasLedgerCustomAmount(filters);
+  const amountRange = hasCustomAmount ? "" : filters.amountRange || "all";
   const sort = filters.sort || "newest";
   const previewCount = applyLedgerAdvancedFilters(baseRows, filters).length;
   panel.innerHTML = [
@@ -146,13 +148,29 @@ function renderLedgerFilterSheet(state, baseRows) {
     "<span>关键词</span>",
     '<input id="ledgerKeywordInput" type="search" placeholder="搜备注 / 分类 / 账户" value="' + escapeHtml(filters.keyword || "") + '">',
     "</label>",
-    renderLedgerFilterSection("分类", renderLedgerAccountFilterOptions(selectedAccounts)),
-    renderLedgerFilterSection("金额", renderLedgerAmountFilterOptions(amountRange)),
+    renderLedgerCategorySection(baseRows, selectedAccounts, selectedCategory),
+    renderLedgerAmountFilterSection(amountRange, filters),
     renderLedgerFilterSection("排序", renderLedgerSortFilterOptions(sort)),
     '<div class="ledger-filter-actions">',
     '<button class="secondary-button" data-reset-ledger-filter type="button">重置</button>',
     '<button class="primary-button" id="ledgerFilterApplyButton" type="submit">查看 ' + previewCount + " 笔</button>",
     "</div>"
+  ].join("");
+}
+
+function renderLedgerAmountFilterSection(selectedRange, filters) {
+  return [
+    '<section class="ledger-filter-section">',
+    "<span>金额</span>",
+    '<div class="ledger-filter-options">',
+    renderLedgerAmountFilterOptions(selectedRange),
+    "</div>",
+    '<div class="ledger-custom-amount">',
+    '<input id="ledgerAmountMinInput" type="number" min="0" step="1" inputmode="decimal" placeholder="最低" value="' + escapeHtml(filters.customAmountMin || "") + '">',
+    '<span>至</span>',
+    '<input id="ledgerAmountMaxInput" type="number" min="0" step="1" inputmode="decimal" placeholder="最高" value="' + escapeHtml(filters.customAmountMax || "") + '">',
+    "</div>",
+    "</section>"
   ].join("");
 }
 
@@ -162,6 +180,24 @@ function renderLedgerFilterSection(title, body) {
     "<span>" + title + "</span>",
     '<div class="ledger-filter-options">',
     body,
+    "</div>",
+    "</section>"
+  ].join("");
+}
+
+function renderLedgerCategorySection(baseRows, selectedAccounts, selectedCategory) {
+  const shouldShowSubcategories = selectedAccounts.size > 0;
+  return [
+    '<section class="ledger-filter-section">',
+    "<span>分类</span>",
+    '<div class="ledger-filter-options">',
+    renderLedgerAccountFilterOptions(selectedAccounts),
+    "</div>",
+    '<div class="ledger-filter-subsection" data-ledger-category-section' + (shouldShowSubcategories ? "" : " hidden") + ">",
+    "<span>二级类目</span>",
+    '<div class="ledger-filter-options ledger-filter-suboptions" data-ledger-category-options>',
+    shouldShowSubcategories ? renderLedgerCategoryFilterOptions(baseRows, selectedAccounts, selectedCategory) : "",
+    "</div>",
     "</div>",
     "</section>"
   ].join("");
@@ -185,14 +221,48 @@ function renderLedgerAmountFilterOptions(selectedRange) {
   const options = [
     ["all", "全部"],
     ["under100", "100以下"],
-    ["100-500", "100-500"],
-    ["500-2000", "500-2000"],
-    ["over2000", "2000以上"]
+    ["100-1000", "100-1000"],
+    ["over1000", "1000以上"]
   ];
   return options.map(([value, label]) => {
     const active = value === selectedRange ? " is-active" : "";
     return '<button class="' + active.trim() + '" data-ledger-amount-filter="' + value + '" type="button">' + label + "</button>";
   }).join("");
+}
+
+function renderLedgerCategoryFilterOptions(baseRows, selectedAccounts, selectedCategory) {
+  const categories = ledgerCategoryOptionsForAccounts(baseRows, selectedAccounts);
+  const options = selectedCategory && !categories.includes(selectedCategory)
+    ? [selectedCategory, ...categories]
+    : categories;
+  return [
+    '<button class="' + (!selectedCategory ? "is-active" : "") + '" data-ledger-category-filter="" type="button">全部</button>',
+    options.map((category) => {
+      const active = category === selectedCategory ? " is-active" : "";
+      return '<button class="' + active.trim() + '" data-ledger-category-filter="' + escapeHtml(category) + '" type="button">' + escapeHtml(category) + "</button>";
+    }).join("")
+  ].join("");
+}
+
+function ledgerCategoryOptionsForAccounts(baseRows, selectedAccounts) {
+  const options = [];
+  selectedAccounts.forEach((accountId) => {
+    (categories[accountId] || []).forEach((category) => options.push(category));
+  });
+  baseRows
+    .filter((entry) => selectedAccounts.has(ledgerFilterAccountKey(entry)))
+    .forEach((entry) => {
+      if (entry.category) options.push(entry.category);
+    });
+  return [...new Set(options)];
+}
+
+function ledgerFilterAccountKey(entry) {
+  return entry.type === "income" ? "income" : entry.accountId;
+}
+
+function hasLedgerCustomAmount(filters) {
+  return String(filters.customAmountMin || "").trim() !== "" || String(filters.customAmountMax || "").trim() !== "";
 }
 
 function renderLedgerSortFilterOptions(selectedSort) {
@@ -355,8 +425,6 @@ function renderBreakdownSection(state, accountId, section, sectionIndex, mode = 
   const items = state.accountBreakdowns?.[accountId]?.[sectionIndex] ?? [];
   const budget = items.reduce((sum, item) => sum + Number(item.amount || 0), 0);
   const spent = spentBySection(state, accountId, section.title);
-  const isInvestment = accountMeta[accountId]?.type === "investment";
-  const spentLabel = isInvestment ? "已投入" : "已用";
   const spentClass = spent > budget && budget > 0 ? "is-overspent" : "";
   const isBudgetMode = mode !== "spent";
   const transactions = isBudgetMode ? [] : sectionTransactions(state, accountId, section.title);
@@ -365,15 +433,15 @@ function renderBreakdownSection(state, accountId, section, sectionIndex, mode = 
       <button class="breakdown-toggle" data-breakdown-toggle type="button" aria-expanded="false">
         <span>
           <strong>${escapeHtml(section.title)}</strong>
-          <em>${isBudgetMode ? items.length + " 个条目" : transactions.length + " 笔已用明细"}</em>
+          <em>${isBudgetMode ? items.length + " 个条目" : transactions.length + " 笔明细"}</em>
         </span>
         <span class="breakdown-metrics">
-          <span>${isBudgetMode ? "" : spentLabel} <b class="${!isBudgetMode ? spentClass : ""}">${yuan.format(isBudgetMode ? budget : spent)}</b></span>
+          <span><b class="${!isBudgetMode ? spentClass : ""}">${yuan.format(isBudgetMode ? budget : spent)}</b></span>
         </span>
         <i aria-hidden="true">⌄</i>
       </button>
       <div class="breakdown-panel">
-        ${isBudgetMode ? renderBudgetBreakdownItems(accountId, sectionIndex, items) : renderSpentBreakdownItems(transactions)}
+        ${isBudgetMode ? renderBudgetBreakdownItems(accountId, sectionIndex, items) : renderSpentBreakdownItems(transactions, accountId, section.title)}
       </div>
     </section>
   `;
@@ -412,24 +480,34 @@ function renderBudgetBreakdownItems(accountId, sectionIndex, items) {
   `;
 }
 
-function renderSpentBreakdownItems(transactions) {
-  if (!transactions.length) return '<p class="empty-copy">本月还没有已用明细。</p>';
+function renderSpentBreakdownItems(transactions, accountId, sectionTitle) {
+  if (!transactions.length) return '<p class="empty-copy">本月还没有明细。</p>';
+  const amounts = transactions.map(t => transactionDisplayAmount(t)).sort((a, b) => a - b);
+  const total = amounts.reduce((sum, a) => sum + a, 0);
+  const average = total / amounts.length;
+  const mid = Math.floor(amounts.length / 2);
+  const median = amounts.length % 2 === 0 ? (amounts[mid - 1] + amounts[mid]) / 2 : amounts[mid];
+  const max = amounts[amounts.length - 1];
+  const recent = transactions.slice(0, 3);
+  const showLink = transactions.length > 3;
   return `
-    <div class="spent-breakdown-items">
-      ${transactions.map((entry) => {
-        const amount = Number(entry.monthAmount ?? entry.amount ?? 0);
-        const note = entry.note ? " · " + escapeHtml(entry.note) : "";
-        const amortization = entry.type === "expense" && amortizationMonths(entry) > 1
-          ? " · 摊销 " + entry.amortizationIndex + "/" + entry.amortizationMonths
-          : "";
-        return `
-          <div class="spent-breakdown-item">
-            <span>${escapeHtml(entry.date)}${amortization}${note}</span>
-            <b>${yuan.format(amount)}</b>
-          </div>
-        `;
-      }).join("")}
+    <div class="spent-breakdown-summary">
+      <span><em>均值</em><b>${yuan.format(average)}</b></span>
+      <span><em>中位</em><b>${yuan.format(median)}</b></span>
+      <span><em>最大</em><b>${yuan.format(max)}</b></span>
     </div>
+    <div class="spent-breakdown-preview">
+      <strong>最近 ${recent.length} 笔</strong>
+      <div class="spent-compact-items">
+        ${recent.map(entry => `
+          <div class="spent-compact-item">
+            <span>${escapeHtml(entry.date)}</span>
+            <b>${yuan.format(transactionDisplayAmount(entry))}</b>
+          </div>
+        `).join("")}
+      </div>
+    </div>
+    ${showLink ? `<button class="spent-ledger-link" data-ledger-section-account="${escapeHtml(accountId)}" data-ledger-section-category="${escapeHtml(sectionTitle)}" type="button">查看全部 ${transactions.length} 笔流水</button>` : ""}
   `;
 }
 
