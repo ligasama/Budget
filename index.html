@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta http-equiv="Cache-Control" content="no-store">
     <title>Budget</title>
-    <link rel="stylesheet" href="styles.css?v=ledger-detail1">
+    <link rel="stylesheet" href="styles.css?v=custom-calendar1">
   </head>
   <body>
     <main class="app-shell">
@@ -24,8 +24,7 @@
               <strong id="monthText">2026年06月</strong>
               <span class="chevron">⌄</span>
             </span>
-            <span class="calendar-button" aria-hidden="true">▣</span>
-            <input id="monthInput" type="month">
+            <input id="monthInput" type="text" readonly inputmode="none" data-date-picker="month">
           </label>
         </header>
 
@@ -48,10 +47,24 @@
           </div>
           <div class="overview-grid">
             <article class="overview-card cash-result">
-              <h3>现金结余</h3>
-              <strong id="cashBalanceTotal">¥0</strong>
+              <h3>现金账户</h3>
+              <button class="cash-balance-button" data-toggle-cash-calibration type="button" aria-label="校准可用现金">
+                <strong id="cashBalanceTotal">¥0</strong>
+              </button>
+              <div class="cash-calibration-row" id="cashCalibrationRow" hidden>
+                <span>校准可用现金</span>
+                <label class="overview-cash-input">
+                  <span>¥</span>
+                  <input id="overviewCurrentCashInput" type="text" inputmode="numeric" value="0" aria-label="当前现金余额">
+                </label>
+                <button class="secondary-button" data-save-cash-calibration type="button">保存</button>
+              </div>
               <div class="overview-divider" aria-hidden="true"></div>
               <div class="overview-breakdown">
+                <span>
+                  <em>本月现金流</em>
+                  <b id="overviewCashFlow">¥0</b>
+                </span>
                 <span>
                   <em>收入</em>
                   <b id="overviewIncome">¥0</b>
@@ -61,7 +74,7 @@
                   <b id="overviewExpense">¥0</b>
                 </span>
                 <span>
-                  <em>投资</em>
+                  <em>资产调动</em>
                   <b id="overviewAssetTransfer">¥0</b>
                 </span>
               </div>
@@ -72,16 +85,20 @@
               <div class="overview-divider" aria-hidden="true"></div>
               <div class="overview-breakdown">
                 <span>
-                  <em>投资盈亏</em>
-                  <b id="investmentPnlTotal">+¥0</b>
-                </span>
-                <span>
-                  <em>转入资产账户</em>
+                  <em>转入</em>
                   <b id="overviewAssetChangeTransfer">+¥0</b>
                 </span>
                 <span>
-                  <em>转出资产账户</em>
+                  <em>转出</em>
                   <b id="overviewAssetTransferOut">¥0</b>
+                </span>
+                <span>
+                  <em>本月浮盈亏</em>
+                  <b id="investmentPnlTotal">+¥0</b>
+                </span>
+                <span>
+                  <em>本月收益率</em>
+                  <b id="investmentReturnRate">+0.0%</b>
                 </span>
               </div>
             </article>
@@ -91,7 +108,6 @@
         <section class="accounts-section" aria-label="预算账户">
           <div class="section-head">
             <h2>预算账户</h2>
-            <button class="text-button" type="button" data-nav="me">管理账户 ›</button>
           </div>
           <div class="account-list" id="accountList"></div>
         </section>
@@ -110,8 +126,7 @@
               <strong id="ledgerMonthText">2026年06月</strong>
               <span class="chevron">⌄</span>
             </span>
-            <span class="calendar-button" aria-hidden="true">▣</span>
-            <input id="ledgerMonthInput" type="month">
+            <input id="ledgerMonthInput" type="text" readonly inputmode="none" data-date-picker="month">
           </label>
         </header>
         <section class="ledger-summary-card" aria-label="本月流水概览">
@@ -145,19 +160,16 @@
       </section>
 
       <section class="screen secondary-screen" data-screen="charts">
-        <header class="simple-header">
-          <button class="back-home-button" data-nav="budget" type="button" aria-label="返回首页">‹ 首页</button>
+        <header class="simple-header assets-page-header">
           <h1>资产</h1>
         </header>
-        <section class="card-section">
-          <div class="bar-list" id="chartBars"></div>
-        </section>
+        <div id="assetsPageContent"></div>
       </section>
 
       <section class="screen secondary-screen" data-screen="budget-settings">
         <header class="simple-header">
           <button class="back-home-button" data-nav="budget" type="button" aria-label="返回首页">‹ 首页</button>
-          <h1>预算设置</h1>
+          <h1>预算管理</h1>
         </header>
         <section class="card-section settings-form" aria-label="预算设置">
           <div class="section-head">
@@ -188,14 +200,15 @@
             </div>
           </div>
         </section>
+        <section class="card-section account-manager" id="accountManager" tabindex="-1" aria-label="预算账户"></section>
       </section>
 
       <section class="screen secondary-screen" data-screen="me">
         <header class="simple-header">
           <button class="back-home-button" data-nav="budget" type="button" aria-label="返回首页">‹ 首页</button>
-          <h1 class="visually-hidden">账户明细</h1>
+          <h1>我的</h1>
         </header>
-        <section class="account-manager" id="accountManager" aria-label="四个账户细分内容"></section>
+        <div class="me-page" id="mePageContent"></div>
       </section>
 
       <section class="screen secondary-screen" data-screen="account-view">
@@ -260,7 +273,7 @@
           <input id="transactionAmountInput" type="number" min="0" step="0.01" inputmode="decimal" required>
         </label>
         <label id="transactionInvestmentKindField">
-          <span>投资类型</span>
+          <span>资产事件</span>
           <select id="transactionInvestmentKindInput"></select>
         </label>
         <label id="transactionAccountField">
@@ -271,13 +284,21 @@
           <span>分类</span>
           <select id="transactionCategoryInput"></select>
         </label>
+        <label id="transactionSubcategoryField">
+          <span>资产子类</span>
+          <select id="transactionSubcategoryInput"></select>
+        </label>
+        <label id="transactionHoldingField">
+          <span>关联持仓</span>
+          <select id="transactionHoldingInput"></select>
+        </label>
         <label>
           <span>备注</span>
           <input id="transactionNoteInput" type="text" placeholder="可选">
         </label>
         <label>
           <span>日期</span>
-          <input id="transactionDateInput" type="date">
+          <input id="transactionDateInput" class="date-picker-input" type="text" readonly inputmode="none" data-date-picker="date">
         </label>
         <label class="amortization-field" id="transactionAmortizationField">
           <span>摊销周期</span>
@@ -299,20 +320,82 @@
       <div class="sheet-backdrop" data-close-sheet></div>
       <form class="entry-panel" id="entryForm">
         <div class="sheet-head">
-          <h2>快速记账</h2>
+          <h2 id="entrySheetTitle">快速记账</h2>
           <button class="icon-button" type="button" data-close-sheet aria-label="关闭">×</button>
         </div>
         <div class="segmented">
           <button class="is-active" data-type-button="expense" type="button">支出</button>
           <button data-type-button="income" type="button">收入</button>
-          <button data-type-button="investment" type="button">投资</button>
         </div>
         <div class="investment-type-field" id="investmentTypeField" hidden>
-          <span>投资类型</span>
+          <span>资产事件</span>
           <div class="choice-row" id="investmentTypeRow"></div>
         </div>
+        <div class="form-field" id="holdingSelectField" hidden>
+          <span>买入持仓</span>
+          <div class="custom-select">
+            <button type="button" class="custom-select-trigger" aria-haspopup="listbox" aria-expanded="false">
+              <span data-select-display></span>
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <div class="custom-select-panel" role="listbox" hidden></div>
+            <input type="hidden" id="holdingSelectInput">
+          </div>
+        </div>
+        <div class="new-holding-inline" id="newHoldingInlineFields" hidden>
+          <strong>新持仓</strong>
+          <label>
+            <span>持仓名称</span>
+            <input id="newHoldingNameInput" type="text" placeholder="如：招商银行3年期定存">
+          </label>
+          <label>
+            <span>代码 / 备注（选填）</span>
+            <input id="newHoldingCodeInput" type="text">
+          </label>
+          <label id="newHoldingTypeField" hidden>
+            <span>类型</span>
+            <div class="custom-select">
+              <button type="button" class="custom-select-trigger" aria-haspopup="listbox" aria-expanded="false">
+                <span data-select-display></span>
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+              <div class="custom-select-panel" role="listbox" hidden></div>
+              <input type="hidden" id="newHoldingTypeInput">
+            </div>
+          </label>
+          <label>
+            <span>期限（选填）</span>
+            <input id="newHoldingTermInput" type="text" placeholder="如：3年期、2026-12到期">
+          </label>
+        </div>
+        <div class="form-field" id="transferOutSourceField" hidden>
+          <span>转出持仓</span>
+          <div class="custom-select">
+            <button type="button" class="custom-select-trigger" aria-haspopup="listbox" aria-expanded="false">
+              <span data-select-display></span>
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <div class="custom-select-panel" role="listbox" hidden></div>
+            <input type="hidden" id="transferOutSourceInput">
+          </div>
+        </div>
+        <label id="transferOutDestField" hidden>
+          <span>转入</span>
+          <input id="transferOutDestInput" type="text" placeholder="如：招商银行储蓄卡">
+        </label>
+        <div class="form-field" id="assetEventHoldingField" hidden>
+          <span>关联资产</span>
+          <div class="custom-select">
+            <button type="button" class="custom-select-trigger" aria-haspopup="listbox" aria-expanded="false">
+              <span data-select-display></span>
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <div class="custom-select-panel" role="listbox" hidden></div>
+            <input type="hidden" id="assetEventHoldingInput">
+          </div>
+        </div>
         <label>
-          <span>金额</span>
+          <span id="amountLabel">金额</span>
           <input id="amountInput" type="number" min="0" step="0.01" inputmode="decimal" required>
         </label>
         <label class="amortization-field" id="amortizationField">
@@ -322,29 +405,104 @@
             <b>个月</b>
           </div>
         </label>
-        <label id="accountField">
+        <div class="form-field" id="accountField">
           <span>账户</span>
-          <select id="accountInput"></select>
-        </label>
-        <label id="categoryField">
+          <div class="custom-select">
+            <button type="button" class="custom-select-trigger" aria-haspopup="listbox" aria-expanded="false">
+              <span data-select-display></span>
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <div class="custom-select-panel" role="listbox" hidden></div>
+            <input type="hidden" id="accountInput">
+          </div>
+        </div>
+        <div class="form-field" id="categoryField">
           <span id="categoryLabel">分类</span>
-          <select id="categoryInput"></select>
-        </label>
+          <div class="custom-select">
+            <button type="button" class="custom-select-trigger" aria-haspopup="listbox" aria-expanded="false">
+              <span data-select-display></span>
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <div class="custom-select-panel" role="listbox" hidden></div>
+            <input type="hidden" id="categoryInput">
+          </div>
+        </div>
+        <div class="form-field" id="subcategoryField" hidden>
+          <span>资产子类</span>
+          <div class="custom-select">
+            <button type="button" class="custom-select-trigger" aria-haspopup="listbox" aria-expanded="false">
+              <span data-select-display></span>
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <div class="custom-select-panel" role="listbox" hidden></div>
+            <input type="hidden" id="subcategoryInput">
+          </div>
+        </div>
         <label>
           <span>备注</span>
           <input id="noteInput" type="text" placeholder="可选">
         </label>
         <label>
           <span>日期</span>
-          <input id="dateInput" type="date">
+          <input id="dateInput" class="date-picker-input" type="text" readonly inputmode="none" data-date-picker="date">
         </label>
         <p class="sheet-note" id="incomeAllocationNote"></p>
+        <p class="sheet-note save-feedback" id="quickSaveFeedback" hidden></p>
         <button class="primary-button" type="submit">完成</button>
       </form>
     </div>
 
+    <div class="sheet" id="holdingSheet" aria-hidden="true">
+      <div class="sheet-backdrop" data-close-holding-sheet></div>
+      <form class="entry-panel" id="holdingForm">
+        <div class="sheet-head">
+          <h2 id="holdingFormTitle">添加持仓</h2>
+          <button class="icon-button" type="button" data-close-holding-sheet aria-label="关闭">×</button>
+        </div>
+        <input id="holdingIdInput" type="hidden">
+        <label>
+          <span>名称</span>
+          <input id="holdingNameInput" type="text" placeholder="如：沪深300ETF" required>
+        </label>
+        <label>
+          <span>代码 / 备注</span>
+          <input id="holdingCodeInput" type="text" placeholder="如：510300（可选）">
+        </label>
+        <label id="holdingTypeField" hidden>
+          <span>类型</span>
+          <select id="holdingTypeInput"></select>
+        </label>
+        <label>
+          <span>资产一级分类</span>
+          <select id="holdingCategoryInput"></select>
+        </label>
+        <label>
+          <span>资产子类</span>
+          <select id="holdingSubcategoryInput"></select>
+        </label>
+        <label>
+          <span>期限（选填）</span>
+          <input id="holdingTermInput" type="text" placeholder="如：3年期、2026-12到期">
+        </label>
+        <label>
+          <span>持仓市值</span>
+          <input id="holdingMarketValueInput" type="number" min="0" step="1" inputmode="decimal" placeholder="当前市场价值" required>
+        </label>
+        <label>
+          <span>累计投入/本金（选填）</span>
+          <input id="holdingCostBasisInput" type="number" min="0" step="1" inputmode="decimal" placeholder="不填则从今天开始追踪">
+        </label>
+        <button class="primary-button" type="submit">保存</button>
+        <button class="secondary-button holding-delete-button" id="holdingDeleteButton" type="button" data-delete-holding hidden>删除此持仓</button>
+      </form>
+    </div>
+
+    <div class="app-toast" id="appToast" role="status" aria-live="polite" hidden></div>
+
+    <div class="custom-date-picker" id="customDatePicker" aria-hidden="true"></div>
+
     <script type="module">
-      import("./app.js?v=ledger-detail1-" + Date.now());
+      import("./app.js?v=custom-calendar1-" + Date.now());
     </script>
   </body>
 </html>

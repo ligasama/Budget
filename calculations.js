@@ -1,4 +1,4 @@
-import { accountMeta, accountOrder, investmentKinds } from "./state.js?v=ledger-detail1";
+import { accountMeta, accountOrder, investmentKinds } from "./state.js?v=negative-neutral1";
 
 export function monthKeyFromDate(date) {
   return String(date || "").slice(0, 7);
@@ -55,9 +55,11 @@ export function transactionDisplayAmount(entry) {
 
 export function ledgerAdvancedFilterCount(filters = {}) {
   let count = 0;
+  const hasCustomAmount = String(filters.customAmountMin || "").trim() !== "" || String(filters.customAmountMax || "").trim() !== "";
   if (String(filters.keyword || "").trim()) count += 1;
   if (Array.isArray(filters.accounts) && filters.accounts.length) count += 1;
-  if (filters.amountRange && filters.amountRange !== "all") count += 1;
+  if (Array.isArray(filters.accounts) && filters.accounts.length && String(filters.category || "").trim()) count += 1;
+  if ((filters.amountRange && filters.amountRange !== "all") || hasCustomAmount) count += 1;
   if (filters.sort && filters.sort !== "newest") count += 1;
   return count;
 }
@@ -65,12 +67,13 @@ export function ledgerAdvancedFilterCount(filters = {}) {
 export function applyLedgerAdvancedFilters(rows, filters = {}) {
   const keyword = String(filters.keyword || "").trim().toLowerCase();
   const accounts = Array.isArray(filters.accounts) ? filters.accounts : [];
-  const amountRange = filters.amountRange || "all";
+  const category = accounts.length ? String(filters.category || "").trim() : "";
   const sort = filters.sort || "newest";
   return rows
     .filter((entry) => {
       if (accounts.length && !accounts.includes(ledgerAccountKey(entry))) return false;
-      if (!matchesLedgerAmountRange(transactionDisplayAmount(entry), amountRange)) return false;
+      if (category && entry.category !== category) return false;
+      if (!matchesLedgerAmountRange(transactionDisplayAmount(entry), filters)) return false;
       if (keyword && !ledgerSearchText(entry).includes(keyword)) return false;
       return true;
     })
@@ -81,11 +84,15 @@ function ledgerAccountKey(entry) {
   return entry.type === "income" ? "income" : entry.accountId;
 }
 
-function matchesLedgerAmountRange(amount, range) {
+function matchesLedgerAmountRange(amount, filters) {
+  const range = filters.amountRange || "all";
   if (range === "under100") return amount < 100;
-  if (range === "100-500") return amount >= 100 && amount <= 500;
-  if (range === "500-2000") return amount >= 500 && amount <= 2000;
-  if (range === "over2000") return amount > 2000;
+  if (range === "100-1000") return amount >= 100 && amount <= 1000;
+  if (range === "over1000") return amount > 1000;
+  const min = Number(filters.customAmountMin);
+  const max = Number(filters.customAmountMax);
+  if (Number.isFinite(min) && String(filters.customAmountMin).trim() !== "" && amount < min) return false;
+  if (Number.isFinite(max) && String(filters.customAmountMax).trim() !== "" && amount > max) return false;
   return true;
 }
 
@@ -155,8 +162,10 @@ export function dailyExpenseTotal(state) {
 }
 
 export function investmentDirection(entry) {
-  const kind = entry.investmentKind || (entry.category === investmentKinds.redeem ? "redeem" : "buyFund");
-  return kind === "redeem" ? -1 : 1;
+  const kind = entry.investmentKind || "transferIn";
+  if (kind === "transferOut") return -1;
+  if (kind === "transferIn") return 1;
+  return 0;
 }
 
 export function investmentFlowTotal(state) {
@@ -166,14 +175,14 @@ export function investmentFlowTotal(state) {
 }
 
 export function assetTransferInTotal(state) {
-  return Number(state.assetSnapshot?.invested || 0) + investmentTransactions(state)
-    .filter((entry) => investmentDirection(entry) > 0)
+  return investmentTransactions(state)
+    .filter((entry) => entry.investmentKind === "transferIn")
     .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
 }
 
 export function assetTransferOutTotal(state) {
   return investmentTransactions(state)
-    .filter((entry) => investmentDirection(entry) < 0)
+    .filter((entry) => entry.investmentKind === "transferOut")
     .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
 }
 
@@ -181,20 +190,132 @@ export function assetTransferTotal(state) {
   return assetTransferInTotal(state) - assetTransferOutTotal(state);
 }
 
+export function assetBudgetUsageTotal(state) {
+  return assetTransferInTotal(state);
+}
+
 export function budgetRemaining(state) {
-  return totalBudget(state) - dailyExpenseTotal(state) - assetTransferTotal(state);
+  return totalBudget(state) - dailyExpenseTotal(state) - assetBudgetUsageTotal(state);
 }
 
 export function cashBalance(state) {
+  return openingCashBalance(state) + monthlyCashFlow(state);
+}
+
+export function monthlyCashFlow(state) {
   return totalIncome(state) - dailyExpenseTotal(state) - assetTransferTotal(state);
 }
 
+export function openingCashBalance(state) {
+  return cashOpeningBalanceForMonth(state, state.currentMonth);
+}
+
+export function setOpeningCashBalance(state, month, amount) {
+  state.cashOpeningBalances ??= {};
+  state.cashCalibratedMonths = Array.isArray(state.cashCalibratedMonths) ? state.cashCalibratedMonths : [];
+  const targetMonth = String(month || state.currentMonth).slice(0, 7);
+  state.cashOpeningBalances[targetMonth] = Number(amount || 0);
+  if (!state.cashCalibratedMonths.includes(targetMonth)) state.cashCalibratedMonths.push(targetMonth);
+}
+
+function cashOpeningBalanceForMonth(state, month) {
+  const targetMonth = String(month || state.currentMonth || "").slice(0, 7);
+  const openings = state.cashOpeningBalances && typeof state.cashOpeningBalances === "object" ? state.cashOpeningBalances : {};
+  const calibratedMonths = calibratedCashMonths(state);
+  if (hasCashOpeningForMonth(openings, calibratedMonths, targetMonth)) return Number(openings[targetMonth] || 0);
+
+  const targetIndex = monthIndex(targetMonth);
+  const priorMonths = Object.keys(openings)
+    .filter((key) => hasCashOpeningForMonth(openings, calibratedMonths, key) && monthIndex(key) < targetIndex)
+    .sort((a, b) => monthIndex(b) - monthIndex(a));
+  const firstTransactionMonth = earliestTransactionMonthBefore(state, targetMonth);
+  if (!priorMonths.length && !firstTransactionMonth) return 0;
+
+  const startMonth = priorMonths[0] || firstTransactionMonth;
+  let balance = priorMonths[0] ? Number(openings[startMonth] || 0) : 0;
+  for (let idx = monthIndex(startMonth); idx < targetIndex; idx += 1) {
+    balance += cashFlowForMonth(state, monthFromIndex(idx));
+  }
+  return balance;
+}
+
+function calibratedCashMonths(state) {
+  return new Set((Array.isArray(state.cashCalibratedMonths) ? state.cashCalibratedMonths : [])
+    .map((month) => String(month || "").slice(0, 7))
+    .filter((month) => /^\d{4}-\d{2}$/.test(month)));
+}
+
+function hasCashOpeningForMonth(openings, calibratedMonths, month) {
+  const key = String(month || "").slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(key) || !Object.prototype.hasOwnProperty.call(openings, key)) return false;
+  const amount = Number(openings[key] || 0);
+  return amount !== 0 || calibratedMonths.has(key);
+}
+
+function earliestTransactionMonthBefore(state, targetMonth) {
+  const targetIndex = monthIndex(targetMonth);
+  return (state.transactions ?? [])
+    .map((entry) => String(entry.date || "").slice(0, 7))
+    .filter((month) => /^\d{4}-\d{2}$/.test(month) && monthIndex(month) < targetIndex)
+    .sort((a, b) => monthIndex(a) - monthIndex(b))[0] || "";
+}
+
+function cashFlowForMonth(state, month) {
+  const rows = transactionsForMonth(state, month);
+  const income = rows
+    .filter((entry) => entry.type === "income")
+    .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+  const expense = rows
+    .filter((entry) => entry.type === "expense" && accountMeta[entry.accountId]?.type !== "investment")
+    .reduce((sum, entry) => sum + Number(entry.monthAmount ?? entry.amount ?? 0), 0);
+  const assetTransfer = rows
+    .filter((entry) => entry.type === "investment")
+    .reduce((sum, entry) => sum + (investmentDirection(entry) * Number(entry.amount || 0)), 0);
+  return income - expense - assetTransfer;
+}
+
+function transactionsForMonth(state, month) {
+  const directRows = state.transactions.filter((entry) => entry.type !== "expense" && entry.date?.startsWith(month));
+  const expenseRows = state.transactions
+    .filter((entry) => isExpenseActiveInMonth(entry, month))
+    .map((entry) => withAmortizationView(entry, month));
+  return [...directRows, ...expenseRows];
+}
+
+function monthFromIndex(index) {
+  const year = Math.floor(index / 12);
+  const month = (index % 12) + 1;
+  return `${year}-${String(month).padStart(2, "0")}`;
+}
+
+export function holdingsMarketValue(state) {
+  return (state.assetSnapshot?.holdings ?? []).reduce((s, h) => s + Number(h.marketValue || 0), 0);
+}
+
+export function holdingsCostBasis(state) {
+  return (state.assetSnapshot?.holdings ?? []).reduce((s, h) => s + Number(h.costBasis || 0), 0);
+}
+
 export function investmentPnl(state) {
-  return Number(state.assetSnapshot?.floatingPnl || 0);
+  const snap = state.assetSnapshot ?? {};
+  const history = snap.history ?? [];
+  const holdings = snap.holdings ?? [];
+  if (history.length > 0 && holdings.length > 0) {
+    const currentValue = holdings.reduce((s, h) => s + Number(h.marketValue || 0), 0);
+    const [year, month] = (state.currentMonth || "").split("-").map(Number);
+    if (year && month) {
+      const prevKey = month === 1
+        ? `${year - 1}-12`
+        : `${year}-${String(month - 1).padStart(2, "0")}`;
+      const prev = history.find(h => h.month === prevKey);
+      if (prev) return currentValue - prev.value;
+    }
+  }
+  return currentMonthAssetEventPnl(state);
 }
 
 export function totalAssetChange(state) {
-  return cashBalance(state) + investmentPnl(state);
+  return monthlyCashFlow(state) + investmentPnl(state);
 }
 
 export function breakdownTotal(state, accountId) {
@@ -206,10 +327,33 @@ export function breakdownTotal(state, accountId) {
 export function spentBySection(state, accountId, sectionTitle) {
   if (accountMeta[accountId]?.type === "investment") {
     return investmentTransactions(state)
-      .filter((entry) => entry.category === sectionTitle && investmentDirection(entry) > 0)
+      .filter((entry) => investmentSectionTitle(state, entry) === sectionTitle)
+      .filter((entry) => entry.investmentKind === "transferIn")
       .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
   }
   return expenseTransactions(state)
     .filter((entry) => entry.accountId === accountId && entry.category === sectionTitle)
     .reduce((sum, entry) => sum + Number(entry.monthAmount ?? entry.amount ?? 0), 0);
+}
+
+function currentMonthAssetEventPnl(state) {
+  const month = state.currentMonth || "";
+  const events = state.assetSnapshot?.assetEvents ?? [];
+  return events
+    .filter((event) => String(event.date || "").startsWith(month))
+    .reduce((sum, event) => {
+      if (event.action === "yield" || event.action === "maturity") {
+        return sum + Number(event.amount || 0);
+      }
+      if (event.action === "valuation") {
+        return sum + Number(event.pnlDelta || 0);
+      }
+      return sum;
+    }, 0);
+}
+
+function investmentSectionTitle(state, entry) {
+  if (entry.category) return entry.category;
+  const holding = (state.assetSnapshot?.holdings ?? []).find((item) => item.id === entry.holdingId);
+  return holding?.category || "未分类资产调动";
 }

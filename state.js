@@ -1,5 +1,14 @@
 export const storageKey = "budget-state-v3";
 
+export const holdingTypes = {
+  etf:     { label: "ETF基金",   abbr: "指", color: "#3a82e4" },
+  fund:    { label: "主动基金",   abbr: "基", color: "#8c67b7" },
+  bond:    { label: "债券/债基", abbr: "债", color: "#21b57a" },
+  deposit: { label: "银行定期",   abbr: "存", color: "#ff8b2c" },
+  money:   { label: "货币/活期", abbr: "货", color: "#6aab6a" },
+  stock:   { label: "股票",       abbr: "股", color: "#e84040" }
+};
+
 export const accountOrder = ["survival", "assets", "upgrade", "freedom"];
 
 export const accountMeta = {
@@ -83,6 +92,8 @@ export const accountDetails = {
   }
 };
 
+export const defaultAccountSections = buildDefaultAccountSections();
+
 export const homeAccountOrder = ["survival", "upgrade", "freedom", "assets"];
 export const spendingAccountOrder = accountOrder.filter((id) => accountMeta[id].type === "spending");
 export const investmentAccountOrder = accountOrder.filter((id) => accountMeta[id].type === "investment");
@@ -141,15 +152,20 @@ export const categories = {
 };
 
 export const investmentKinds = {
-  buyFund: "买入基金",
-  redeem: "赎回",
-  transferAsset: "转入资产账户"
+  transferIn: "追加投入",
+  transferOut: "赎回/转出",
+  valuation: "更新市值",
+  yield: "利息/分红",
+  maturity: "到期结算"
 };
 
 export const defaultLedgerAdvancedFilters = {
   keyword: "",
   accounts: [],
+  category: "",
   amountRange: "all",
+  customAmountMin: "",
+  customAmountMax: "",
   sort: "newest"
 };
 
@@ -160,9 +176,17 @@ export const yuan = new Intl.NumberFormat("zh-CN", { style: "currency", currency
 
 export const customRatios = { survival: 30, assets: 50, upgrade: 12, freedom: 8 };
 export const defaultAssetSnapshot = {
-  invested: 6000,
-  marketValue: 152380,
-  floatingPnl: 128
+  floatingPnl: 128,
+  privacyMode: false,
+  safetyMonths: 6,
+  trendMonths: 6,
+  holdings: [
+    { id: "hold_1", name: "沪深300ETF",  code: "510300",     type: "etf",   category: "增长层", subcategory: "宽基指数基金", marketValue: 68240, costBasis: 60000 },
+    { id: "hold_2", name: "中证红利ETF", code: "515080",     type: "etf",   category: "增长层", subcategory: "权益基金", marketValue: 46800, costBasis: 43000 },
+    { id: "hold_3", name: "货币基金",    code: "余额宝-天弘", type: "money", category: "现金类储备", subcategory: "货币基金", marketValue: 37340, costBasis: 25000 }
+  ],
+  assetEvents: [],
+  history: []
 };
 
 export const defaultAccountBreakdowns = {
@@ -197,14 +221,35 @@ export const defaultAccountBreakdowns = {
   assets: [
     [
       { id: "assets-index", name: "宽基指数基金", amount: 4200 },
-      { id: "assets-equity", name: "权益基金", amount: 1800 }
+      { id: "assets-enhanced-index", name: "指数增强基金", amount: 0 },
+      { id: "assets-equity", name: "主动权益基金", amount: 1800 },
+      { id: "assets-sector-fund", name: "行业主题基金", amount: 0 },
+      { id: "assets-stock", name: "股票", amount: 0 },
+      { id: "assets-reit", name: "公募REITs", amount: 0 },
+      { id: "assets-qdii", name: "QDII基金", amount: 0 },
+      { id: "assets-gold", name: "黄金ETF/积存金", amount: 0 }
     ],
     [
       { id: "assets-bond", name: "债券基金", amount: 900 },
-      { id: "assets-rate", name: "利率债组合", amount: 600 }
+      { id: "assets-short-bond", name: "短债基金", amount: 0 },
+      { id: "assets-medium-bond", name: "中短债基金", amount: 0 },
+      { id: "assets-rate", name: "利率债基金", amount: 600 },
+      { id: "assets-credit-bond", name: "信用债基金", amount: 0 },
+      { id: "assets-pure-bond", name: "纯债基金", amount: 0 },
+      { id: "assets-bond-plus", name: "固收+", amount: 0 },
+      { id: "assets-certificate", name: "大额存单", amount: 0 },
+      { id: "assets-structured-deposit", name: "结构性存款", amount: 0 },
+      { id: "assets-insurance-saving", name: "储蓄险/年金险", amount: 0 }
     ],
     [
       { id: "assets-cash", name: "货币基金", amount: 600 },
+      { id: "assets-demand-deposit", name: "活期存款", amount: 0 },
+      { id: "assets-call-deposit", name: "通知存款", amount: 0 },
+      { id: "assets-deposit", name: "定期存款", amount: 600 },
+      { id: "assets-cash-management", name: "现金管理类理财", amount: 0 },
+      { id: "assets-reverse-repo", name: "国债逆回购", amount: 0 },
+      { id: "assets-tbill", name: "储蓄国债", amount: 0 },
+      { id: "assets-bank-demand", name: "银行活钱理财", amount: 0 },
       { id: "assets-emergency", name: "应急储备", amount: 900 }
     ]
   ],
@@ -257,16 +302,22 @@ export const defaultState = {
   quickType: "expense",
   ledgerFilter: "all",
   ledgerAdvancedFilters: structuredClone(defaultLedgerAdvancedFilters),
-  investmentKind: "buyFund",
+  investmentKind: "transferIn",
   budgetStyle: "stable",
   manualBudgetStyle: false,
   managerAccountId: "survival",
   managerViewMode: "budget",
+  assetsShowAllHoldings: false,
   ratios: structuredClone(stylePresets.stable.ratios),
   customRatios: structuredClone(customRatios),
   budgets: allocateIncome(29000, stylePresets.stable.ratios),
+  livingBudgetHistory: [{ month: defaultMonth, amount: livingBudgetFromBudgets(allocateIncome(29000, stylePresets.stable.ratios)) }],
+  cashOpeningBalances: {},
+  cashCalibratedMonths: [],
   assetSnapshot: structuredClone(defaultAssetSnapshot),
   accountBreakdowns: structuredClone(defaultAccountBreakdowns),
+  accountSections: structuredClone(defaultAccountSections),
+  incomeCategories: structuredClone(categories.income),
   transactions: [
     tx("income", "income", "工资", 29000, "本月工资", `${defaultMonth}-01`),
     tx("expense", "survival", "基础饮食成本", 86, "早餐和午餐", today),
@@ -287,9 +338,13 @@ export function normalizeState(candidate) {
     : structuredClone(stylePresets[budgetStyle]?.ratios ?? savedCustomRatios);
   const migratedBudget = accountOrder.reduce((sum, id) => sum + Number(candidate.budgets?.[id] || 0), 0);
   const totalBudget = Number(candidate.totalBudget ?? (migratedBudget || defaultState.totalBudget));
+  const currentMonth = candidate.currentMonth || defaultState.currentMonth;
+  const budgets = { ...allocateIncome(totalBudget, ratios), ...(candidate.budgets ?? {}) };
+  const cashOpeningBalances = normalizeCashOpeningBalances(candidate.cashOpeningBalances, currentMonth);
   return {
     ...structuredClone(defaultState),
     ...candidate,
+    currentMonth,
     totalBudget,
     budgetStyle,
     managerAccountId: accountOrder.includes(candidate.managerAccountId) ? candidate.managerAccountId : "survival",
@@ -298,11 +353,141 @@ export function normalizeState(candidate) {
     ledgerAdvancedFilters: normalizeLedgerAdvancedFilters(candidate.ledgerAdvancedFilters),
     ratios,
     customRatios: savedCustomRatios,
-    budgets: { ...allocateIncome(totalBudget, ratios), ...(candidate.budgets ?? {}) },
-    assetSnapshot: { ...defaultAssetSnapshot, ...(candidate.assetSnapshot ?? {}) },
+    budgets,
+    livingBudgetHistory: normalizeLivingBudgetHistory(candidate.livingBudgetHistory, budgets, currentMonth),
+    cashOpeningBalances,
+    cashCalibratedMonths: normalizeCashCalibratedMonths(candidate.cashCalibratedMonths, cashOpeningBalances),
+    assetsShowAllHoldings: candidate.assetsShowAllHoldings === true,
+    assetSnapshot: {
+      ...defaultAssetSnapshot,
+      ...(candidate.assetSnapshot ?? {}),
+      safetyMonths: normalizeSafetyMonths(candidate.assetSnapshot?.safetyMonths),
+      trendMonths: normalizeTrendMonths(candidate.assetSnapshot?.trendMonths),
+      holdings: normalizeHoldings(candidate.assetSnapshot?.holdings),
+      assetEvents: Array.isArray(candidate.assetSnapshot?.assetEvents) ? candidate.assetSnapshot.assetEvents : [],
+      history:  Array.isArray(candidate.assetSnapshot?.history)  ? candidate.assetSnapshot.history  : defaultAssetSnapshot.history
+    },
     accountBreakdowns: mergeAccountBreakdowns(candidate.accountBreakdowns),
+    accountSections: normalizeAccountSections(candidate.accountSections),
+    incomeCategories: normalizeIncomeCategories(candidate.incomeCategories),
     transactions: Array.isArray(candidate.transactions) ? candidate.transactions : []
   };
+}
+
+function normalizeCashOpeningBalances(openings, currentMonth) {
+  const source = openings && typeof openings === "object" ? openings : {};
+  const normalized = Object.entries(source).reduce((result, [month, value]) => {
+    const key = String(month || "").slice(0, 7);
+    const amount = Number(value || 0);
+    if (/^\d{4}-\d{2}$/.test(key) && Number.isFinite(amount)) result[key] = amount;
+    return result;
+  }, {});
+  const entries = Object.entries(normalized);
+  if (entries.length === 1 && entries[0][1] === 0) return {};
+  return normalized;
+}
+
+function normalizeCashCalibratedMonths(months, openings) {
+  const source = Array.isArray(months) ? months : [];
+  const openingMonths = openings && typeof openings === "object" ? openings : {};
+  return [...new Set(source
+    .map((month) => String(month || "").slice(0, 7))
+    .filter((month) => /^\d{4}-\d{2}$/.test(month) && Object.prototype.hasOwnProperty.call(openingMonths, month)))];
+}
+
+function normalizeLivingBudgetHistory(history, budgets, currentMonth) {
+  const rows = Array.isArray(history) ? history : [];
+  const normalized = rows
+    .map((row) => ({
+      month: String(row?.month || "").slice(0, 7),
+      amount: Number(row?.amount || 0)
+    }))
+    .filter((row) => /^\d{4}-\d{2}$/.test(row.month) && Number.isFinite(row.amount) && row.amount > 0);
+  return upsertLivingBudgetSnapshot(normalized, currentMonth, livingBudgetFromBudgets(budgets));
+}
+
+export function livingBudgetFromBudgets(budgets) {
+  return spendingAccountOrder.reduce((sum, id) => sum + Number(budgets?.[id] || 0), 0);
+}
+
+export function upsertLivingBudgetSnapshot(history, month, amount) {
+  const safeMonth = String(month || defaultMonth).slice(0, 7);
+  const safeAmount = Number(amount || 0);
+  const rows = Array.isArray(history) ? history : [];
+  if (!/^\d{4}-\d{2}$/.test(safeMonth) || !Number.isFinite(safeAmount) || safeAmount <= 0) {
+    return rows;
+  }
+  return [
+    ...rows.filter((row) => row.month !== safeMonth),
+    { month: safeMonth, amount: safeAmount }
+  ].sort((a, b) => String(a.month).localeCompare(String(b.month)));
+}
+
+function normalizeIncomeCategories(savedCategories) {
+  if (!Array.isArray(savedCategories)) return structuredClone(categories.income);
+  const items = savedCategories.map((item) => String(item || "").trim()).filter(Boolean);
+  return items.length ? [...new Set(items)] : structuredClone(categories.income);
+}
+
+function buildDefaultAccountSections() {
+  return accountOrder.reduce((result, accountId) => {
+    result[accountId] = (accountDetails[accountId]?.sections ?? []).map((section, index) => ({
+      id: `${accountId}-section-${index}`,
+      title: section.title,
+      body: section.body
+    }));
+    return result;
+  }, {});
+}
+
+function normalizeAccountSections(savedSections) {
+  if (!savedSections || typeof savedSections !== "object") return structuredClone(defaultAccountSections);
+  return accountOrder.reduce((result, accountId) => {
+    const sections = Array.isArray(savedSections[accountId])
+      ? savedSections[accountId]
+      : defaultAccountSections[accountId];
+    result[accountId] = sections
+      .filter((section) => section && typeof section === "object")
+      .map((section, index) => ({
+        id: section.id || `${accountId}-section-${index}`,
+        title: String(section.title || `细分 ${index + 1}`),
+        body: String(section.body || "")
+      }));
+    return result;
+  }, {});
+}
+
+function normalizeSafetyMonths(value) {
+  const months = Math.max(1, Math.floor(Number(value || defaultAssetSnapshot.safetyMonths)));
+  return Number.isFinite(months) ? months : defaultAssetSnapshot.safetyMonths;
+}
+
+function normalizeTrendMonths(value) {
+  const months = Math.max(2, Math.min(60, Math.floor(Number(value || defaultAssetSnapshot.trendMonths))));
+  return Number.isFinite(months) ? months : defaultAssetSnapshot.trendMonths;
+}
+
+function normalizeHoldings(holdings) {
+  const source = Array.isArray(holdings) ? holdings : defaultAssetSnapshot.holdings;
+  return source.map((holding) => ({
+    ...holding,
+    category: holding.category || defaultHoldingCategory(holding),
+    subcategory: holding.subcategory || defaultHoldingSubcategory(holding)
+  }));
+}
+
+function defaultHoldingCategory(holding) {
+  if (["money", "deposit"].includes(holding.type)) return "现金类储备";
+  if (holding.type === "bond") return "稳定层";
+  return "增长层";
+}
+
+function defaultHoldingSubcategory(holding) {
+  if (holding.subcategory) return holding.subcategory;
+  if (holding.type === "deposit") return "定期存款";
+  if (holding.type === "money") return "货币基金";
+  if (holding.type === "bond") return "债券基金";
+  return "宽基指数基金";
 }
 
 function mergeAccountBreakdowns(savedBreakdowns) {
@@ -311,9 +496,13 @@ function mergeAccountBreakdowns(savedBreakdowns) {
   accountOrder.forEach((accountId) => {
     if (!Array.isArray(savedBreakdowns[accountId])) return;
     merged[accountId] = merged[accountId].map((sectionItems, index) => {
-      return Array.isArray(savedBreakdowns[accountId][index])
-        ? savedBreakdowns[accountId][index]
-        : sectionItems;
+      if (!Array.isArray(savedBreakdowns[accountId][index])) return sectionItems;
+      const savedItems = savedBreakdowns[accountId][index];
+      const savedIds = new Set(savedItems.map((item) => item.id));
+      return [
+        ...savedItems,
+        ...sectionItems.filter((item) => !savedIds.has(item.id))
+      ];
     });
   });
   return merged;
@@ -324,7 +513,10 @@ function normalizeLedgerAdvancedFilters(filters = {}) {
   return {
     keyword: typeof filters.keyword === "string" ? filters.keyword : "",
     accounts: accountCandidates.filter((id) => [...accountOrder, "income"].includes(id)),
-    amountRange: ["all", "under100", "100-500", "500-2000", "over2000"].includes(filters.amountRange) ? filters.amountRange : "all",
+    category: typeof filters.category === "string" ? filters.category : "",
+    amountRange: ["under100", "100-1000", "over1000"].includes(filters.amountRange) ? filters.amountRange : "all",
+    customAmountMin: filters.customAmountMin === undefined || filters.customAmountMin === null ? "" : String(filters.customAmountMin),
+    customAmountMax: filters.customAmountMax === undefined || filters.customAmountMax === null ? "" : String(filters.customAmountMax),
     sort: ["newest", "amountDesc", "amountAsc"].includes(filters.sort) ? filters.sort : "newest"
   };
 }
